@@ -208,27 +208,39 @@ export async function saveCoreState(
     }));
 
   try {
-    const [existingClasses, existingStudents, existingGrades] = await Promise.all([
+    const [existingClasses, existingStudents, existingGrades, existingSettings] = await Promise.all([
       client.from('classes').select('id').eq('owner_id', ownerId),
       client.from('students').select('id').eq('owner_id', ownerId),
       client.from('grades').select('id').eq('owner_id', ownerId),
+      client.from('app_settings').select('settings').eq('owner_id', ownerId).maybeSingle(),
     ]);
     if (existingClasses.error) throw existingClasses.error;
     if (existingStudents.error) throw existingStudents.error;
     if (existingGrades.error) throw existingGrades.error;
+    if (existingSettings.error && existingSettings.error.code !== 'PGRST116') throw existingSettings.error;
 
     const currentClassIds = new Set(classRows.map(row => row.id));
     const currentStudentIds = new Set(studentRows.map(row => row.id));
     const currentGradeIds = new Set(gradeRows.map(row => row.id));
+
+    const deletedCloudIds = new Set((state.deletedRecordIds || []).flatMap(localId => {
+      if (isUuid(localId)) return [localId];
+      return [
+        stableUuid(`class:${ownerId}:${localId}`),
+        stableUuid(`student:${ownerId}:${localId}`),
+        stableUuid(`grade:${ownerId}:${localId}`)
+      ];
+    }));
+
     const staleClassIds = existingClasses.data
       .map(row => row.id)
-      .filter(id => !currentClassIds.has(id));
+      .filter(id => !currentClassIds.has(id) && deletedCloudIds.has(id));
     const staleStudentIds = existingStudents.data
       .map(row => row.id)
-      .filter(id => !currentStudentIds.has(id));
+      .filter(id => !currentStudentIds.has(id) && deletedCloudIds.has(id));
     const staleGradeIds = existingGrades.data
       .map(row => row.id)
-      .filter(id => !currentGradeIds.has(id));
+      .filter(id => !currentGradeIds.has(id) && deletedCloudIds.has(id));
 
     if (staleGradeIds.length > 0) {
       const result = await client.from('grades').delete().in('id', staleGradeIds).eq('owner_id', ownerId);
@@ -250,13 +262,27 @@ export async function saveCoreState(
     const gradesResult = await client.from('grades').upsert(gradeRows, { onConflict: 'id' });
     if (gradesResult.error) throw gradesResult.error;
 
+    const remoteSettings = (existingSettings.data?.settings || {}) as Partial<AppState>;
+    const deletedLocalIds = new Set(state.deletedRecordIds || []);
+
+    const mergeArrays = <T extends { id: string }>(local: T[], remote: T[] = []) => {
+      const map = new Map<string, T>();
+      for (const item of remote) {
+        if (!deletedLocalIds.has(item.id)) map.set(item.id, item);
+      }
+      for (const item of local) {
+        map.set(item.id, item);
+      }
+      return Array.from(map.values());
+    };
+
     const settings = JSON.parse(JSON.stringify({
       profile: state.profile,
-      timetable: state.timetable,
-      sessions: state.sessions,
-      lessonProgress: state.lessonProgress,
-      customUnits: state.customUnits,
-      lessonPlans: state.lessonPlans,
+      timetable: mergeArrays(state.timetable, remoteSettings.timetable),
+      sessions: mergeArrays(state.sessions, remoteSettings.sessions),
+      lessonProgress: mergeArrays(state.lessonProgress, remoteSettings.lessonProgress),
+      customUnits: mergeArrays(state.customUnits, remoteSettings.customUnits),
+      lessonPlans: mergeArrays(state.lessonPlans, remoteSettings.lessonPlans),
       unitPdfFiles: Object.fromEntries(
         Object.entries(state.unitPdfFiles || {}).map(([key, value]) => [
           key,

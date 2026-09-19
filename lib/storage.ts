@@ -41,6 +41,7 @@ export interface AppState {
   dashboardStyle?: DashboardStyle;
   sidebarCollapsed?: boolean;
   onboardingDismissed?: boolean;
+  deletedRecordIds?: string[];
 }
 
 const STORAGE_KEY = "sanad_al_oustadh_state_v2";

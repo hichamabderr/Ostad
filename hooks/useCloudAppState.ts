@@ -286,7 +286,37 @@ export function useCloudAppState(user: User | null) {
   }, [user?.id]);
 
   const handleUpdateState = (updater: (previous: AppState) => AppState) => {
-    setState((previous) => updater(previous));
+    setState((previous) => {
+      const next = updater(previous);
+      
+      const prevIds = new Set([
+        ...previous.classes.map(c => c.id),
+        ...previous.students.map(s => s.id),
+        ...previous.grades.map(g => g.id),
+        ...previous.sessions.map(s => s.id),
+        ...previous.timetable.map(t => t.id),
+      ]);
+      const nextIds = new Set([
+        ...next.classes.map(c => c.id),
+        ...next.students.map(s => s.id),
+        ...next.grades.map(g => g.id),
+        ...next.sessions.map(s => s.id),
+        ...next.timetable.map(t => t.id),
+      ]);
+      const newlyDeleted = [...prevIds].filter(id => !nextIds.has(id));
+      
+      if (newlyDeleted.length > 0) {
+        return {
+          ...next,
+          deletedRecordIds: [...(previous.deletedRecordIds || []), ...newlyDeleted]
+        };
+      }
+      
+      return {
+        ...next,
+        deletedRecordIds: previous.deletedRecordIds || []
+      };
+    });
   };
 
   const replaceStateFromBackup = async (nextState: AppState): Promise<void> => {
