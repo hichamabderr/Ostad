@@ -6,6 +6,7 @@ import { getLocalDateString } from '@/lib/date-utils';
 import { SanadTab } from './SidebarSanad';
 import { OFFICIAL_CURRICULUM } from '@/lib/curriculum-data';
 import { ConfirmDialog } from './ConfirmDialog';
+import { showToast } from './Toast';
 import { v4 as uuidv4 } from 'uuid';
 import {
   Clock,
@@ -35,6 +36,7 @@ interface DashboardProps {
   state: AppState;
   onNavigate: (tab: SanadTab) => void;
   onUpdateState: (updater: (prev: AppState) => AppState) => void;
+  onResetWorkspace?: () => Promise<void>;
 }
 
 interface UrgentTask {
@@ -46,7 +48,8 @@ interface UrgentTask {
 export const Dashboard: React.FC<DashboardProps> = ({
   state,
   onNavigate,
-  onUpdateState
+  onUpdateState,
+  onResetWorkspace,
 }) => {
   // Urgent tasks state with localStorage persistence
   const [tasks, setTasks] = useState<UrgentTask[]>(() => {
@@ -71,6 +74,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [showTaskInput, setShowTaskInput] = useState(false);
   const [isTodaySessionsModalOpen, setIsTodaySessionsModalOpen] = useState(false);
   const [taskToDeleteId, setTaskToDeleteId] = useState<string | null>(null);
+  const [resetWorkspaceRequested, setResetWorkspaceRequested] = useState(false);
 
   const saveTasks = (newTasks: UrgentTask[]) => {
     setTasks(newTasks);
@@ -253,6 +257,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <div className="h-full rounded-full bg-emerald-200 transition-all" style={{ width: `${(completedOnboardingSteps / onboardingSteps.length) * 100}%` }} />
             </div>
             <div className="flex flex-wrap items-center gap-3">
+              {onResetWorkspace && (
+                <button
+                  type="button"
+                  onClick={() => setResetWorkspaceRequested(true)}
+                  className="px-3 py-2 text-xs font-bold text-white/80 hover:text-white underline underline-offset-4 cursor-pointer"
+                >
+                  حذف بيانات البداية والبدء من جديد
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => onUpdateState(prev => ({ ...prev, onboardingDismissed: true }))}
@@ -837,6 +850,24 @@ export const Dashboard: React.FC<DashboardProps> = ({
           if (taskToDeleteId) {
             deleteTask(taskToDeleteId);
           }
+        }}
+      />
+      <ConfirmDialog
+        isOpen={resetWorkspaceRequested}
+        title="حذف مساحة العمل"
+        message="سيتم حذف الأقسام والتلاميذ والدرجات والحضور والجلسات والجدول والملفات الخاصة بهذه المساحة. لا يمكن التراجع عن هذا الإجراء."
+        onCancel={() => setResetWorkspaceRequested(false)}
+        onConfirm={() => {
+          if (!onResetWorkspace) return;
+          void onResetWorkspace()
+            .then(() => {
+              setResetWorkspaceRequested(false);
+              showToast('تم تنظيف مساحة العمل. يمكنك الآن استيراد بياناتك.', 'success');
+            })
+            .catch((error: unknown) => {
+              console.error('Workspace reset failed:', error);
+              showToast('تعذر تنظيف مساحة العمل بالكامل. لم يتم إعلان نجاح الحذف.', 'error');
+            });
         }}
       />
     </div>

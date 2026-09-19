@@ -1,10 +1,28 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { getEmptyState, isDemoState } from '@/lib/storage';
 import type { AppState } from '@/lib/storage';
 import type { ClassRoom, Student, StudentGrade } from '@/lib/types';
 import type { Database } from './database.types';
 import { stableUuid } from './migrate-local-state';
 
 type Client = SupabaseClient<Database>;
+
+export async function resetCloudWorkspace(client: Client, ownerId: string): Promise<void> {
+  const files = await client
+    .from('memoranda_files')
+    .select('storage_path')
+    .eq('owner_id', ownerId);
+  if (files.error) throw files.error;
+
+  const removed = await client.rpc('reset_workspace');
+  if (removed.error) throw removed.error;
+
+  const paths = files.data.map((file) => file.storage_path);
+  if (paths.length > 0) {
+    const storageResult = await client.storage.from('memoranda').remove(paths);
+    if (storageResult.error) throw storageResult.error;
+  }
+}
 
 export interface SyncMetadata {
   revision: number;
@@ -96,9 +114,9 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
     if (gradesResult.error) throw gradesResult.error;
     if (settingsResult.error) throw settingsResult.error;
 
-    // An empty cloud account must not erase an existing local workspace before migration.
     if (classesResult.data.length === 0 && studentsResult.data.length === 0 && gradesResult.data.length === 0) {
-      return localState;
+      // Demo data is a presentation seed, never a user's workspace.
+      return isDemoState(localState) ? getEmptyState() : localState;
     }
 
     const classes = classesResult.data.map(toClass);

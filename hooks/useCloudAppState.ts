@@ -2,18 +2,21 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { User } from '@supabase/supabase-js';
-import { loadAppState, saveAppState } from '@/lib/storage';
+import { getEmptyState, loadAppState, saveAppState } from '@/lib/storage';
+import { clearTeacherBinaryFiles } from '@/lib/binary-storage';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
-import { loadCoreState, saveCoreState } from '@/lib/supabase/core-sync';
+import { loadCoreState, resetCloudWorkspace, saveCoreState } from '@/lib/supabase/core-sync';
 import {
   enqueueSyncState,
   getSyncDeviceId,
   listSyncOutbox,
   removeSyncOutboxEntry,
+  clearSyncOutbox,
 } from '@/lib/sync-outbox';
 import type { AppState } from '@/lib/storage';
 
 type CloudSyncStatus = 'loading' | 'ready' | 'local-only';
+const WORKSPACE_OWNER_KEY = 'sanad:workspace-owner';
 
 function describeCloudError(error: unknown): Error {
   if (error instanceof Error) return error;
@@ -39,8 +42,12 @@ function isLocalOnlyCloudError(error: unknown): boolean {
 }
 
 export function useCloudAppState(user: User | null) {
-  const local = loadAppState;
-  const [state, setState] = useState<AppState>(() => local());
+  const [state, setState] = useState<AppState>(() => {
+    const localState = loadAppState();
+    if (typeof window === 'undefined' || !user) return localState;
+    const cachedOwner = window.localStorage.getItem(WORKSPACE_OWNER_KEY);
+    return cachedOwner && cachedOwner !== user.id ? getEmptyState() : localState;
+  });
   const isMounted = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -62,12 +69,13 @@ export function useCloudAppState(user: User | null) {
     const timer = window.setTimeout(() => {
       try {
         saveAppState(state);
+        if (user) window.localStorage.setItem(WORKSPACE_OWNER_KEY, user.id);
       } catch (error) {
         console.error('Local state save failed:', error);
       }
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [isMounted, state]);
+  }, [isMounted, state, user]);
 
   useEffect(() => {
     if (!user) {
@@ -89,6 +97,7 @@ export function useCloudAppState(user: User | null) {
         if (!active) return;
         setState(remoteState);
         latestStateRef.current = remoteState;
+        window.localStorage.setItem(WORKSPACE_OWNER_KEY, user.id);
         setCloudStatus('ready');
       })
       .catch((error) => {
@@ -215,5 +224,47 @@ export function useCloudAppState(user: User | null) {
     setState((previous) => updater(previous));
   };
 
-  return { state, handleUpdateState, isMounted, cloudReady, cloudStatus };
+  const replaceStateFromBackup = async (nextState: AppState): Promise<void> => {
+    if (user) await clearSyncOutbox(user.id);
+    const normalizedState = {
+      ...nextState,
+      activeClassId: nextState.classes.some((item) => item.id === nextState.activeClassId)
+        ? nextState.activeClassId
+        : nextState.classes[0]?.id || null,
+    };
+    setState(normalizedState);
+    latestStateRef.current = normalizedState;
+    saveAppState(normalizedState);
+  };
+
+  const resetWorkspace = async (): Promise<void> => {
+    if (user) {
+      const client = createSupabaseBrowserClient();
+      if (!client) throw new Error('لا يمكن تنظيف مساحة الحساب دون اتصال Supabase.');
+      await resetCloudWorkspace(client, user.id);
+      await clearSyncOutbox(user.id);
+    }
+    await clearTeacherBinaryFiles();
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('sanad_urgent_tasks');
+    }
+    const emptyState = getEmptyState();
+    saveAppState(emptyState);
+    if (user && typeof window !== 'undefined') {
+      window.localStorage.setItem(WORKSPACE_OWNER_KEY, user.id);
+    }
+    setState(emptyState);
+    latestStateRef.current = emptyState;
+    revisionRef.current = 0;
+  };
+
+  return {
+    state,
+    handleUpdateState,
+    replaceStateFromBackup,
+    resetWorkspace,
+    isMounted,
+    cloudReady,
+    cloudStatus,
+  };
 }

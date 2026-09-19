@@ -1,7 +1,7 @@
 'use client';
 
 import { showToast } from '@/components/Toast';
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { AppState } from '@/lib/storage';
 import { SanadTab } from './SidebarSanad';
@@ -106,6 +106,16 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
 
   const dayNames = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'];
   const activeClassObj = state.classes.find(c => c.id === selectedClassId);
+
+  useEffect(() => {
+    const selectedStillExists = state.classes.some(cls => cls.id === selectedClassId);
+    if (selectedStillExists) return;
+    const nextClassId = state.classes.some(cls => cls.id === state.activeClassId)
+      ? state.activeClassId || ''
+      : state.classes[0]?.id || '';
+    const timer = window.setTimeout(() => setSelectedClassId(nextClassId), 0);
+    return () => window.clearTimeout(timer);
+  }, [selectedClassId, state.activeClassId, state.classes]);
 
   const findImportConflicts = (
     importedClasses: Array<{

@@ -31,11 +31,13 @@ import { ConfirmDialog } from "./ConfirmDialog";
 interface SettingsSanadProps {
   state: AppState;
   onUpdateState: (updater: (prev: AppState) => AppState) => void;
+  onReplaceState?: (state: AppState) => Promise<void>;
 }
 
 export const SettingsSanad: React.FC<SettingsSanadProps> = ({
   state,
   onUpdateState,
+  onReplaceState,
 }) => {
   const [calendarSettings, setCalendarSettings] =
     useState<AcademicCalendarSettings>(
@@ -50,6 +52,7 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = ({
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showHolidaysConfirm, setShowHolidaysConfirm] = useState(false);
   const [showSuccessMsg, setShowSuccessMsg] = useState("");
+  const [pendingImportedState, setPendingImportedState] = useState<AppState | null>(null);
   const [isAddHolidayOpen, setIsAddHolidayOpen] = useState(false);
   const [holidayToDeleteId, setHolidayToDeleteId] = useState<string | null>(null);
 
@@ -141,13 +144,12 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = ({
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
         const text = evt.target?.result as string;
         const imported = importBackupJSON(text);
-        onUpdateState(() => imported);
+        setPendingImportedState(imported);
         if (fileInputRef.current) fileInputRef.current.value = "";
-        showToast("تمت استعادة البيانات بنجاح تام!", "success");
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "خطأ غير متوقع";
         showToast(`فشل استيراد الملف: ${message}`, "error");
@@ -156,6 +158,29 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = ({
     };
 
     reader.readAsText(file);
+  };
+
+  const confirmImportJSON = async () => {
+    if (!pendingImportedState) return;
+    try {
+      if (onReplaceState) {
+        await onReplaceState(pendingImportedState);
+      } else {
+        onUpdateState(() => pendingImportedState);
+      }
+      const hasPdfReferences = Object.values(pendingImportedState.unitPdfFiles || {})
+        .some((file) => Boolean(file.fileStorageKey || file.fileDataUrl));
+      setPendingImportedState(null);
+      showToast(
+        hasPdfReferences
+          ? "تمت استعادة البيانات. استعد أرشيف PDF ZIP بشكل منفصل لإظهار الملفات المحلية."
+          : "تمت استعادة البيانات بنجاح تام!",
+        "success",
+      );
+    } catch (error) {
+      console.error("Backup replacement failed:", error);
+      showToast("تعذر استبدال البيانات الحالية. لم يتم إعلان نجاح الاستيراد.", "error");
+    }
   };
 
   const handleExportPdfArchive = async () => {
@@ -876,6 +901,13 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = ({
             handleDeleteHoliday(holidayToDeleteId);
           }
         }}
+      />
+      <ConfirmDialog
+        isOpen={Boolean(pendingImportedState)}
+        title="استبدال بيانات التطبيق"
+        message="سيتم استبدال الحالة الحالية بالنسخة المستوردة، وحذف عمليات المزامنة المحلية القديمة حتى لا تعود بيانات سابقة فوق النسخة الجديدة. ملفات PDF المحلية تحتاج إلى استعادة ملف ZIP بشكل منفصل."
+        onCancel={() => setPendingImportedState(null)}
+        onConfirm={() => void confirmImportJSON()}
       />
     </div>
   );

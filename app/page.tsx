@@ -33,7 +33,7 @@ const DocumentsExport = dynamic(() => import('@/components/DocumentsExport').the
 const GlobalSearchModal = dynamic(() => import('@/components/GlobalSearchModal').then((mod) => mod.GlobalSearchModal), { ssr: false });
 
 function AppContent({ user, onSignOut }: { user: User | null; onSignOut: () => void }) {
-  const { state, handleUpdateState, isMounted, cloudReady } = useCloudAppState(user);
+  const { state, handleUpdateState, replaceStateFromBackup, resetWorkspace, isMounted, cloudReady } = useCloudAppState(user);
 
   const [currentTab, setCurrentTab] = useState<SanadTab>(() => {
     if (typeof window === 'undefined') return 'dashboard';
@@ -183,6 +183,7 @@ function AppContent({ user, onSignOut }: { user: User | null; onSignOut: () => v
               state={state}
               onNavigate={setCurrentTab}
               onUpdateState={handleUpdateState}
+              onResetWorkspace={resetWorkspace}
             />
           )}
 
@@ -247,6 +248,7 @@ function AppContent({ user, onSignOut }: { user: User | null; onSignOut: () => v
             <SettingsSanad
               state={state}
               onUpdateState={handleUpdateState}
+              onReplaceState={replaceStateFromBackup}
             />
           )}
 

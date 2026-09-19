@@ -59,3 +59,8 @@ export async function listSyncOutbox(ownerId: string): Promise<SyncOutboxEntry[]
 export async function removeSyncOutboxEntry(id: string): Promise<void> {
   await del(outboxKey(id));
 }
+
+export async function clearSyncOutbox(ownerId: string): Promise<void> {
+  const entries = await listSyncOutbox(ownerId);
+  await Promise.all(entries.map((entry) => removeSyncOutboxEntry(entry.id)));
+}

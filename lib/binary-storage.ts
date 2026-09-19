@@ -44,3 +44,10 @@ export function binaryKeyForPdf(unitId: string): string {
 export function binaryKeyForAvatar(): string {
   return 'sanad:avatar:profile';
 }
+
+export async function clearTeacherBinaryFiles(): Promise<void> {
+  const keysToDelete = (await listBinaryKeys()).filter((key) =>
+    key.startsWith('sanad:pdf:') || key === binaryKeyForAvatar(),
+  );
+  await Promise.all(keysToDelete.map((key) => deleteBinaryFile(key)));
+}

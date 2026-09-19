@@ -817,6 +817,30 @@ export function getInitialState(): AppState {
   };
 }
 
+export function getEmptyState(): AppState {
+  const initial = getInitialState();
+  return {
+    ...initial,
+    classes: [],
+    timetable: [],
+    students: [],
+    sessions: [],
+    grades: [],
+    lessonProgress: [],
+    customUnits: [],
+    lessonPlans: [],
+    unitPdfFiles: {},
+    activeClassId: null,
+    onboardingDismissed: false,
+  };
+}
+
+export function isDemoState(state: AppState): boolean {
+  return state.profile.name === 'أستاذ المادة' &&
+    state.classes.some((item) => item.id.startsWith('cls-')) &&
+    state.students.some((item) => item.id.startsWith('std-'));
+}
+
 export function loadAppState(): AppState {
   if (typeof window === "undefined") return getInitialState();
 
