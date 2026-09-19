@@ -30,6 +30,8 @@ export interface SyncMetadata {
   deviceId: string;
 }
 
+type SyncEntityType = 'class' | 'student' | 'grade' | 'session' | 'timetable' | 'lessonProgress' | 'customUnit' | 'lessonPlan';
+
 function isSchemaUnavailableError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
 
@@ -103,16 +105,22 @@ function toGrade(row: Database['public']['Tables']['grades']['Row']): StudentGra
 
 export async function loadCoreState(client: Client, localState: AppState): Promise<AppState> {
   try {
-    const [classesResult, studentsResult, gradesResult, settingsResult] = await Promise.all([
+    const [classesResult, studentsResult, gradesResult, settingsResult, tombstonesResult] = await Promise.all([
       client.from('classes').select('*').order('name'),
       client.from('students').select('*').order('class_id').order('number_in_list'),
       client.from('grades').select('*'),
       client.from('app_settings').select('settings').maybeSingle(),
+      client.from('sync_tombstones').select('entity_type,entity_id'),
     ]);
     if (classesResult.error) throw classesResult.error;
     if (studentsResult.error) throw studentsResult.error;
     if (gradesResult.error) throw gradesResult.error;
     if (settingsResult.error) throw settingsResult.error;
+    if (tombstonesResult.error) throw tombstonesResult.error;
+
+    const tombstones = new Set(
+      tombstonesResult.data.map((item) => `${item.entity_type}:${item.entity_id}`),
+    );
 
     if (classesResult.data.length === 0 && studentsResult.data.length === 0 && gradesResult.data.length === 0) {
       // Demo data is a presentation seed, never a user's workspace.
@@ -131,6 +139,8 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
     const supplementary = settings && typeof settings === 'object' && !Array.isArray(settings)
       ? settings as Partial<AppState>
       : {};
+    const filterDeleted = <T extends { id: string }>(items: T[], entityType: SyncEntityType) =>
+      items.filter((item) => !tombstones.has(`${entityType}:${item.id}`));
 
     return {
       ...localState,
@@ -138,6 +148,11 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
       classes,
       students,
       grades,
+      sessions: filterDeleted(supplementary.sessions || [], 'session'),
+      timetable: filterDeleted(supplementary.timetable || [], 'timetable'),
+      lessonProgress: filterDeleted(supplementary.lessonProgress || [], 'lessonProgress'),
+      customUnits: filterDeleted(supplementary.customUnits || [], 'customUnit'),
+      lessonPlans: filterDeleted(supplementary.lessonPlans || [], 'lessonPlan'),
       activeClassId: classes.some((item) => item.id === localState.activeClassId)
         ? localState.activeClassId
         : classes[0]?.id || null,
@@ -167,6 +182,9 @@ export async function saveCoreState(
     weekly_hours: item.level === '1AS_SCIENCE' ? 1 : 2,
     academic_year: state.profile.academicYear || null,
     notes: null,
+    sync_revision: syncMetadata?.revision || 0,
+    sync_updated_at: syncMetadata?.updatedAt || new Date().toISOString(),
+    sync_device_id: syncMetadata?.deviceId || null,
   }));
   const studentRows: Database['public']['Tables']['students']['Insert'][] = state.students
     .filter((item) => state.classes.some((classItem) => classItem.id === item.classId))
@@ -184,6 +202,9 @@ export async function saveCoreState(
       gender: item.gender === 'M' ? 'male' : item.gender === 'F' ? 'female' : null,
       birth_date: item.birthDate || null,
       notes: item.notes || null,
+      sync_revision: syncMetadata?.revision || 0,
+      sync_updated_at: syncMetadata?.updatedAt || new Date().toISOString(),
+      sync_device_id: syncMetadata?.deviceId || null,
     }));
   const gradeRows: Database['public']['Tables']['grades']['Insert'][] = state.grades
     .filter((item) => studentIdMap.has(item.studentId) && classIdMap.has(item.classId))
@@ -205,19 +226,24 @@ export async function saveCoreState(
       guidance: item.guidance || null,
       remarks: item.remarks || null,
       follow_up_notes: item.followUpNotes || null,
+      sync_revision: syncMetadata?.revision || 0,
+      sync_updated_at: syncMetadata?.updatedAt || new Date().toISOString(),
+      sync_device_id: syncMetadata?.deviceId || null,
     }));
 
   try {
-    const [existingClasses, existingStudents, existingGrades, existingSettings] = await Promise.all([
+    const [existingClasses, existingStudents, existingGrades, existingSettings, existingTombstones] = await Promise.all([
       client.from('classes').select('id').eq('owner_id', ownerId),
       client.from('students').select('id').eq('owner_id', ownerId),
       client.from('grades').select('id').eq('owner_id', ownerId),
-      client.from('app_settings').select('settings').eq('owner_id', ownerId).maybeSingle(),
+      client.from('app_settings').select('settings,revision,updated_at,updated_by_device').eq('owner_id', ownerId).maybeSingle(),
+      client.from('sync_tombstones').select('entity_type,entity_id').eq('owner_id', ownerId),
     ]);
     if (existingClasses.error) throw existingClasses.error;
     if (existingStudents.error) throw existingStudents.error;
     if (existingGrades.error) throw existingGrades.error;
     if (existingSettings.error && existingSettings.error.code !== 'PGRST116') throw existingSettings.error;
+    if (existingTombstones.error) throw existingTombstones.error;
 
     const currentClassIds = new Set(classRows.map(row => row.id));
     const currentStudentIds = new Set(studentRows.map(row => row.id));
@@ -231,6 +257,33 @@ export async function saveCoreState(
         stableUuid(`grade:${ownerId}:${localId}`)
       ];
     }));
+    const tombstoneRows: Database['public']['Tables']['sync_tombstones']['Insert'][] = [];
+    for (const localId of state.deletedRecordIds || []) {
+      const entities: Array<[SyncEntityType, string]> = [
+        ['class', cloudId(ownerId, 'class', localId)],
+        ['student', cloudId(ownerId, 'student', localId)],
+        ['grade', isUuid(localId) ? localId : stableUuid(`grade:${ownerId}:${localId}`)],
+        ['session', localId],
+        ['timetable', localId],
+        ['lessonProgress', localId],
+        ['customUnit', localId],
+        ['lessonPlan', localId],
+      ];
+      for (const [entityType, entityId] of entities) {
+        tombstoneRows.push({
+          owner_id: ownerId,
+          entity_type: entityType,
+          entity_id: entityId,
+          deleted_at: syncMetadata?.updatedAt || new Date().toISOString(),
+          revision: syncMetadata?.revision || 0,
+          device_id: syncMetadata?.deviceId || null,
+        });
+      }
+    }
+    if (tombstoneRows.length > 0) {
+      const tombstonesResult = await client.from('sync_tombstones').upsert(tombstoneRows, { onConflict: 'owner_id,entity_type,entity_id' });
+      if (tombstonesResult.error) throw tombstonesResult.error;
+    }
 
     const staleClassIds = existingClasses.data
       .map(row => row.id)
@@ -264,11 +317,16 @@ export async function saveCoreState(
 
     const remoteSettings = (existingSettings.data?.settings || {}) as Partial<AppState>;
     const deletedLocalIds = new Set(state.deletedRecordIds || []);
+    const deletedRemoteKeys = new Set(
+      existingTombstones.data.map((item) => `${item.entity_type}:${item.entity_id}`),
+    );
 
-    const mergeArrays = <T extends { id: string }>(local: T[], remote: T[] = []) => {
+    const mergeArrays = <T extends { id: string }>(local: T[], remote: T[] = [], entityType?: SyncEntityType) => {
       const map = new Map<string, T>();
       for (const item of remote) {
-        if (!deletedLocalIds.has(item.id)) map.set(item.id, item);
+        if (!deletedLocalIds.has(item.id) && (!entityType || !deletedRemoteKeys.has(`${entityType}:${item.id}`))) {
+          map.set(item.id, item);
+        }
       }
       for (const item of local) {
         map.set(item.id, item);
@@ -278,11 +336,11 @@ export async function saveCoreState(
 
     const settings = JSON.parse(JSON.stringify({
       profile: state.profile,
-      timetable: mergeArrays(state.timetable, remoteSettings.timetable),
-      sessions: mergeArrays(state.sessions, remoteSettings.sessions),
-      lessonProgress: mergeArrays(state.lessonProgress, remoteSettings.lessonProgress),
-      customUnits: mergeArrays(state.customUnits, remoteSettings.customUnits),
-      lessonPlans: mergeArrays(state.lessonPlans, remoteSettings.lessonPlans),
+      timetable: mergeArrays(state.timetable, remoteSettings.timetable, 'timetable'),
+      sessions: mergeArrays(state.sessions, remoteSettings.sessions, 'session'),
+      lessonProgress: mergeArrays(state.lessonProgress, remoteSettings.lessonProgress, 'lessonProgress'),
+      customUnits: mergeArrays(state.customUnits, remoteSettings.customUnits, 'customUnit'),
+      lessonPlans: mergeArrays(state.lessonPlans, remoteSettings.lessonPlans, 'lessonPlan'),
       unitPdfFiles: Object.fromEntries(
         Object.entries(state.unitPdfFiles || {}).map(([key, value]) => [
           key,
@@ -296,6 +354,28 @@ export async function saveCoreState(
       onboardingDismissed: state.onboardingDismissed,
       syncMetadata: syncMetadata || null,
     })) as Database['public']['Tables']['app_settings']['Insert']['settings'];
+
+    const localUpdatedAt = syncMetadata?.updatedAt || new Date().toISOString();
+    const remoteUpdatedAt = existingSettings.data?.updated_at;
+    if (
+      remoteUpdatedAt &&
+      syncMetadata &&
+      remoteUpdatedAt > localUpdatedAt &&
+      existingSettings.data?.updated_by_device !== syncMetadata.deviceId
+    ) {
+      const conflictResult = await client.from('sync_conflicts').insert({
+        owner_id: ownerId,
+        entity_type: 'app_settings',
+        entity_id: ownerId,
+        local_revision: syncMetadata.revision,
+        remote_revision: existingSettings.data?.revision || 0,
+        local_device_id: syncMetadata.deviceId,
+        remote_device_id: existingSettings.data?.updated_by_device || null,
+        resolution: 'last-write-wins',
+      });
+      if (conflictResult.error) throw conflictResult.error;
+      return;
+    }
 
     const { error: settingsError } = await client.from('app_settings').upsert({
       owner_id: ownerId,

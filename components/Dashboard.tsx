@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { AppState, exportBackupJSON } from '@/lib/storage';
+import { AppState, exportBackupJSON, isDemoState } from '@/lib/storage';
 import { getLocalDateString } from '@/lib/date-utils';
 import { SanadTab } from './SidebarSanad';
 import { OFFICIAL_CURRICULUM } from '@/lib/curriculum-data';
@@ -176,11 +176,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const classUnits = OFFICIAL_CURRICULUM.filter(u => u.level === activeSlotClass?.level);
   const currentUnit = classUnits.find(u => !completedUnitIds.has(u.id)) || classUnits[0];
 
-  const isDemoData = state.profile.name === 'أستاذ المادة';
+  const isDemoData = isDemoState(state);
   const onboardingSteps = [
     {
+      label: 'حذف بيانات البداية',
+      done: !isDemoData,
+      action: 'reset' as const,
+    },
+    {
       label: 'إعداد الملف المهني',
-      done: state.profile.name !== 'أستاذ المادة' && Boolean(state.profile.schoolName),
+      done: state.profile.name !== 'أستاذ المادة' && Boolean(state.profile.name.trim()),
       tab: 'settings' as SanadTab
     },
     {
@@ -235,14 +240,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="relative z-10">
             <div className="text-2xl font-black mb-3">مرحباً بك في منصة «معين الأستاذ»</div>
             <p className="text-sm text-white/90 mb-6 max-w-3xl leading-relaxed">
-              هذه بيانات تجريبية للتعرف على المنصة. أكمل الخطوات الثلاث التالية لتحويلها إلى مساحة عملك الفعلية.
+              هذه بيانات تجريبية للتعرف على المنصة. احذفها أولاً، ثم أكمل خطوات إعداد مساحة عملك الفعلية.
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mb-5">
               {onboardingSteps.map((step, index) => (
                 <button
                   key={step.label}
                   type="button"
-                  onClick={() => onNavigate(step.tab)}
+                  onClick={() => {
+                    if (step.action === 'reset') {
+                      setResetWorkspaceRequested(true);
+                      return;
+                    }
+                    onNavigate(step.tab);
+                  }}
                   className="text-right rounded-xl border border-white/20 bg-black/10 hover:bg-white/15 p-3 cursor-pointer transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
                 >
                   <div className="flex items-center gap-2 text-xs font-bold">
@@ -253,7 +264,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </button>
               ))}
             </div>
-            <div className="h-1.5 rounded-full bg-white/20 mb-5 overflow-hidden" aria-label={`اكتمل ${completedOnboardingSteps} من 3 خطوات`}>
+            <div className="h-1.5 rounded-full bg-white/20 mb-5 overflow-hidden" aria-label={`اكتمل ${completedOnboardingSteps} من ${onboardingSteps.length} خطوات`}>
               <div className="h-full rounded-full bg-emerald-200 transition-all" style={{ width: `${(completedOnboardingSteps / onboardingSteps.length) * 100}%` }} />
             </div>
             <div className="flex flex-wrap items-center gap-3">

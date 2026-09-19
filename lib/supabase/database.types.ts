@@ -58,6 +58,19 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['sync_conflicts']['Insert']>;
         Relationships: [];
       };
+      sync_tombstones: {
+        Row: {
+          owner_id: string;
+          entity_type: string;
+          entity_id: string;
+          deleted_at: string;
+          revision: number;
+          device_id: string | null;
+        };
+        Insert: Database['public']['Tables']['sync_tombstones']['Row'];
+        Update: Partial<Database['public']['Tables']['sync_tombstones']['Insert']>;
+        Relationships: [];
+      };
       profiles: {
         Row: {
           id: string;
@@ -84,9 +97,15 @@ export interface Database {
           notes: string | null;
           created_at: string;
           updated_at: string;
+          sync_revision: number;
+          sync_updated_at: string;
+          sync_device_id: string | null;
         };
-        Insert: Omit<Database['public']['Tables']['classes']['Row'], 'id' | 'created_at' | 'updated_at'> & {
+        Insert: Omit<Database['public']['Tables']['classes']['Row'], 'id' | 'created_at' | 'updated_at' | 'sync_revision' | 'sync_updated_at' | 'sync_device_id'> & {
           id?: string;
+          sync_revision?: number;
+          sync_updated_at?: string;
+          sync_device_id?: string | null;
         };
         Update: Partial<Database['public']['Tables']['classes']['Insert']>;
         Relationships: [];
@@ -109,8 +128,16 @@ export interface Database {
           notes: string | null;
           created_at: string;
           updated_at: string;
+          sync_revision: number;
+          sync_updated_at: string;
+          sync_device_id: string | null;
         };
-        Insert: Omit<Database['public']['Tables']['students']['Row'], 'id' | 'normalized_name' | 'created_at' | 'updated_at'> & { id?: string };
+        Insert: Omit<Database['public']['Tables']['students']['Row'], 'id' | 'normalized_name' | 'created_at' | 'updated_at' | 'sync_revision' | 'sync_updated_at' | 'sync_device_id'> & {
+          id?: string;
+          sync_revision?: number;
+          sync_updated_at?: string;
+          sync_device_id?: string | null;
+        };
         Update: Partial<Database['public']['Tables']['students']['Insert']>;
         Relationships: [];
       };
@@ -135,8 +162,16 @@ export interface Database {
           follow_up_notes: string | null;
           created_at: string;
           updated_at: string;
+          sync_revision: number;
+          sync_updated_at: string;
+          sync_device_id: string | null;
         };
-        Insert: Omit<Database['public']['Tables']['grades']['Row'], 'id' | 'created_at' | 'updated_at'> & { id?: string };
+        Insert: Omit<Database['public']['Tables']['grades']['Row'], 'id' | 'created_at' | 'updated_at' | 'sync_revision' | 'sync_updated_at' | 'sync_device_id'> & {
+          id?: string;
+          sync_revision?: number;
+          sync_updated_at?: string;
+          sync_device_id?: string | null;
+        };
         Update: Partial<Database['public']['Tables']['grades']['Insert']>;
         Relationships: [];
       };
