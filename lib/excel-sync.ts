@@ -4,6 +4,20 @@ import { GradeLevel, Student, StudentGrade } from './types';
 import { v4 as uuidv4 } from 'uuid';
 import { parseAlgerianClass, getCanonicalClassName, getStudentNameKey } from './name-normalizer';
 
+const MAX_EXCEL_FILE_SIZE_BYTES = 15 * 1024 * 1024;
+const EXCEL_FILE_EXTENSIONS = new Set(['.xlsx', '.xlsm', '.xlsb', '.xls']);
+
+function validateExcelFile(file: File): void {
+  const fileName = file.name.toLowerCase();
+  const extension = fileName.slice(fileName.lastIndexOf('.'));
+  if (!EXCEL_FILE_EXTENSIONS.has(extension)) {
+    throw new Error('يرجى اختيار ملف Excel بصيغة XLSX أو XLS أو XLSM أو XLSB.');
+  }
+  if (file.size <= 0 || file.size > MAX_EXCEL_FILE_SIZE_BYTES) {
+    throw new Error('حجم ملف Excel غير صالح. الحد الأقصى المسموح هو 15 ميغابايت.');
+  }
+}
+
 export interface ParsedClassData {
   sheetName: string;
   className: string;
@@ -214,6 +228,7 @@ export function detectSheetColumnIndices(data: any[][]): SheetColumnIndices {
 export async function parseDigitizationFile(
   file: File
 ): Promise<ParsedDigitizationResult> {
+  validateExcelFile(file);
   const arrayBuffer = await file.arrayBuffer();
 
   let workbook;
@@ -411,6 +426,7 @@ export async function injectGradesIntoFile(
   students: Student[],
   grades: StudentGrade[]
 ): Promise<{ blob: Blob; matchedStudents: number; gradesWritten: number }> {
+  validateExcelFile(file);
   const arrayBuffer = await file.arrayBuffer();
   const originalZip = unzipSync(new Uint8Array(arrayBuffer));
   let workbook;

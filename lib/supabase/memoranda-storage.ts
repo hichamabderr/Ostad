@@ -30,7 +30,7 @@ export async function uploadTeacherMemorandum(unitId: string, file: File): Promi
   const storagePath = `users/${context.userId}/${unitId}/current.pdf`;
   const existing = await context.client
     .from('memoranda_files')
-    .select('id,storage_path')
+    .select('id,storage_path,revision')
     .eq('owner_id', context.userId)
     .eq('unit_id', unitId)
     .eq('is_bundled', false)
@@ -51,7 +51,7 @@ export async function uploadTeacherMemorandum(unitId: string, file: File): Promi
         file_size: file.size,
         checksum,
         mime_type: 'application/pdf',
-        revision: 1,
+        revision: existing.data.revision + 1,
         deleted_at: null,
       }).eq('id', existing.data.id).eq('owner_id', context.userId)
     : await context.client.from('memoranda_files').insert({

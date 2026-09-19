@@ -8,6 +8,7 @@ interface AccessibleDialogProps {
   onClose: () => void;
   children: React.ReactNode;
   className?: string;
+  describedBy?: string;
 }
 
 const FOCUSABLE = [
@@ -25,6 +26,7 @@ export function AccessibleDialog({
   onClose,
   children,
   className = '',
+  describedBy,
 }: AccessibleDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -79,6 +81,7 @@ export function AccessibleDialog({
       <div
         ref={dialogRef}
         role="dialog" aria-modal="true" aria-labelledby={titleId}
+        aria-describedby={describedBy}
         dir="rtl" className={className}
       >
         {children}

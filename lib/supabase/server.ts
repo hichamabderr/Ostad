@@ -1,16 +1,21 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Database } from './database.types'
+import { getSupabaseEnv } from './env'
 
 /**
  * If using Fluid compute: Don't put this client in a global variable. Always create a new client within each
  * function when using it.
  */
-export async function createClient() {
+export async function createClient(): Promise<SupabaseClient<Database> | null> {
   const cookieStore = await cookies()
+  const env = getSupabaseEnv()
+  if (!env) return null
 
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+  return createServerClient<Database>(
+    env.url,
+    env.publishableKey,
     {
       cookies: {
         getAll() {
