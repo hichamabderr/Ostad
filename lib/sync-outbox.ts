@@ -32,7 +32,7 @@ export async function enqueueSyncState(
   revision: number,
   updatedAt: string,
 ): Promise<string> {
-  const id = `${ownerId}:${revision}`;
+  const id = `${ownerId}:${getSyncDeviceId()}:${revision}:${updatedAt}`;
   const entry: SyncOutboxEntry = {
     id,
     ownerId,

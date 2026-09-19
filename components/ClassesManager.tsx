@@ -458,8 +458,8 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     let summaryNotificationMsg: string | null = null;
 
     onUpdateState(prev => {
-        const updatedClasses = [...prev.classes];
-        let updatedStudents = [...prev.students];
+        const updatedClasses = prev.classes.map(classRoom => ({ ...classRoom }));
+        let updatedStudents = prev.students.map(student => ({ ...student }));
         let totalNewStudentsAdded = 0;
         let totalExistingStudentsRetained = 0;
         const processedClassIds: string[] = [];
@@ -670,8 +670,8 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     let totalUpdated = 0;
 
     onUpdateState(prev => {
-      const updatedClasses = [...prev.classes];
-      let updatedStudents = [...prev.students];
+      const updatedClasses = prev.classes.map(classRoom => ({ ...classRoom }));
+      let updatedStudents = prev.students.map(student => ({ ...student }));
       const processedClassIds: string[] = [];
 
       const classColors = [

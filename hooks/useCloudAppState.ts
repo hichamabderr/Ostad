@@ -41,6 +41,49 @@ function isLocalOnlyCloudError(error: unknown): boolean {
   return candidate.code === 'LOCAL_ONLY_CLOUD' || /schema is unavailable|remaining in local-only mode|could not find the table|schema cache/i.test(text);
 }
 
+async function flushSyncOutbox(
+  client: ReturnType<typeof createSupabaseBrowserClient>,
+  ownerId: string,
+  syncingRef: { current: boolean },
+  onError: (error: unknown) => void,
+): Promise<boolean> {
+  if (!client || syncingRef.current) return false;
+
+  syncingRef.current = true;
+  let completed = false;
+  try {
+    while (true) {
+      const entries = await listSyncOutbox(ownerId);
+      const entry = entries[0];
+      if (!entry) {
+        completed = true;
+        return true;
+      }
+
+      await saveCoreState(client, ownerId, entry.state, {
+        revision: entry.revision,
+        updatedAt: entry.updatedAt,
+        deviceId: getSyncDeviceId(),
+      });
+      await removeSyncOutboxEntry(entry.id);
+    }
+  } catch (error) {
+    onError(error);
+    return false;
+  } finally {
+    syncingRef.current = false;
+    if (completed) {
+      void listSyncOutbox(ownerId)
+        .then((entries) => {
+          if (entries.length > 0) {
+            void flushSyncOutbox(client, ownerId, syncingRef, onError);
+          }
+        })
+        .catch(onError);
+    }
+  }
+}
+
 export function useCloudAppState(user: User | null) {
   const [state, setState] = useState<AppState>(() => {
     const localState = loadAppState();
@@ -56,6 +99,8 @@ export function useCloudAppState(user: User | null) {
   const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus>(() => (user ? 'loading' : 'ready'));
   const cloudReady = !user || cloudStatus !== 'loading';
   const syncingRef = useRef(false);
+  const pendingSaveTimerRef = useRef<number | null>(null);
+  const saveGenerationRef = useRef(0);
   const latestStateRef = useRef(state);
   const revisionRef = useRef(0);
   const updatedAtRef = useRef(new Date(0).toISOString());
@@ -111,11 +156,18 @@ export function useCloudAppState(user: User | null) {
         setCloudStatus('local-only');
       });
 
+    const refreshRemoteState = async () => {
+      if (syncingRef.current || pendingSaveTimerRef.current !== null || (await listSyncOutbox(user.id)).length > 0) return;
+
+      const remoteState = await loadCoreState(client, latestStateRef.current);
+      latestStateRef.current = remoteState;
+      setState(remoteState);
+    };
+
     const channel = client
       .channel(`core-state:${user.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'classes', filter: `owner_id=eq.${user.id}` }, () => {
-        void loadCoreState(client, latestStateRef.current)
-          .then(setState)
+        void refreshRemoteState()
           .catch((error) => {
             if (isLocalOnlyCloudError(error)) {
               setCloudStatus('local-only');
@@ -125,8 +177,7 @@ export function useCloudAppState(user: User | null) {
           });
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'students', filter: `owner_id=eq.${user.id}` }, () => {
-        void loadCoreState(client, latestStateRef.current)
-          .then(setState)
+        void refreshRemoteState()
           .catch((error) => {
             if (isLocalOnlyCloudError(error)) {
               setCloudStatus('local-only');
@@ -136,14 +187,23 @@ export function useCloudAppState(user: User | null) {
           });
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'grades', filter: `owner_id=eq.${user.id}` }, () => {
-        void loadCoreState(client, latestStateRef.current)
-          .then(setState)
+        void refreshRemoteState()
           .catch((error) => {
             if (isLocalOnlyCloudError(error)) {
               setCloudStatus('local-only');
               return;
             }
             console.error('Realtime grades sync failed:', describeCloudError(error).message);
+          });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings', filter: `owner_id=eq.${user.id}` }, () => {
+        void refreshRemoteState()
+          .catch((error) => {
+            if (isLocalOnlyCloudError(error)) {
+              setCloudStatus('local-only');
+              return;
+            }
+            console.error('Realtime app settings sync failed:', describeCloudError(error).message);
           });
       })
       .subscribe((status) => {
@@ -161,58 +221,63 @@ export function useCloudAppState(user: User | null) {
   useEffect(() => {
     if (!isMounted || !cloudReady) return;
     if (!user) return;
+    if (cloudStatus === 'local-only') return;
     revisionRef.current += 1;
     updatedAtRef.current = new Date().toISOString();
     const revision = revisionRef.current;
     const updatedAt = updatedAtRef.current;
+    const saveGeneration = saveGenerationRef.current;
     const timer = window.setTimeout(() => {
+      pendingSaveTimerRef.current = -1;
+      if (saveGeneration !== saveGenerationRef.current) {
+        pendingSaveTimerRef.current = null;
+        return;
+      }
       const client = createSupabaseBrowserClient();
-      if (!client || syncingRef.current) return;
-      syncingRef.current = true;
       void enqueueSyncState(user.id, state, revision, updatedAt)
-        .then(() => listSyncOutbox(user.id))
-        .then(async entries => {
-          for (const entry of entries) {
-            await saveCoreState(client, user.id, entry.state, {
-              revision: entry.revision,
-              updatedAt: entry.updatedAt,
-              deviceId: getSyncDeviceId(),
-            });
-            await removeSyncOutboxEntry(entry.id);
-          }
-        })
-        .catch((error) => {
+        .then(() => flushSyncOutbox(client, user.id, syncingRef, (error) => {
           if (isLocalOnlyCloudError(error)) {
             setCloudStatus('local-only');
             return;
           }
           console.error('Cloud state save failed:', describeCloudError(error).message);
-        })
+        }))
         .finally(() => {
-          syncingRef.current = false;
+          if (pendingSaveTimerRef.current === -1) pendingSaveTimerRef.current = null;
         });
     }, 700);
-    return () => window.clearTimeout(timer);
+    pendingSaveTimerRef.current = timer;
+    return () => {
+      window.clearTimeout(timer);
+      if (pendingSaveTimerRef.current === timer) pendingSaveTimerRef.current = null;
+    };
   // user is read by the scheduled callback; changing its id also resets cloudReady.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloudReady, cloudStatus, isMounted, state, user?.id]);
 
   useEffect(() => {
     if (!user || typeof window === 'undefined') return;
-    const retryWhenOnline = () => {
+    const retryWhenOnline = async () => {
       const client = createSupabaseBrowserClient();
-      if (!client) return;
+      if (!client || syncingRef.current || pendingSaveTimerRef.current !== null) return;
       setCloudStatus('loading');
-      void loadCoreState(client, latestStateRef.current)
-        .then(remoteState => {
-          setState(remoteState);
-          latestStateRef.current = remoteState;
-          setCloudStatus('ready');
-        })
-        .catch(error => {
-          setCloudStatus('local-only');
-          console.error('Cloud sync retry failed:', describeCloudError(error).message);
-        });
+      const flushed = await flushSyncOutbox(client, user.id, syncingRef, (error) => {
+        console.error('Cloud sync retry failed:', describeCloudError(error).message);
+      });
+      if (!flushed || (await listSyncOutbox(user.id)).length > 0) {
+        setCloudStatus('local-only');
+        return;
+      }
+
+      try {
+        const remoteState = await loadCoreState(client, latestStateRef.current);
+        setState(remoteState);
+        latestStateRef.current = remoteState;
+        setCloudStatus('ready');
+      } catch (error) {
+        setCloudStatus('local-only');
+        console.error('Cloud sync retry failed:', describeCloudError(error).message);
+      }
     };
     window.addEventListener('online', retryWhenOnline);
     return () => window.removeEventListener('online', retryWhenOnline);
@@ -225,6 +290,11 @@ export function useCloudAppState(user: User | null) {
   };
 
   const replaceStateFromBackup = async (nextState: AppState): Promise<void> => {
+    saveGenerationRef.current += 1;
+    if (pendingSaveTimerRef.current !== null && pendingSaveTimerRef.current !== -1) {
+      window.clearTimeout(pendingSaveTimerRef.current);
+      pendingSaveTimerRef.current = null;
+    }
     if (user) await clearSyncOutbox(user.id);
     const normalizedState = {
       ...nextState,
@@ -238,6 +308,11 @@ export function useCloudAppState(user: User | null) {
   };
 
   const resetWorkspace = async (): Promise<void> => {
+    saveGenerationRef.current += 1;
+    if (pendingSaveTimerRef.current !== null && pendingSaveTimerRef.current !== -1) {
+      window.clearTimeout(pendingSaveTimerRef.current);
+      pendingSaveTimerRef.current = null;
+    }
     if (user) {
       const client = createSupabaseBrowserClient();
       if (!client) throw new Error('لا يمكن تنظيف مساحة الحساب دون اتصال Supabase.');
