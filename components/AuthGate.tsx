@@ -114,6 +114,11 @@ function AuthLanding() {
           </div>
         </div>
       </section>
+      <footer className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-center gap-x-5 gap-y-2 pb-2 text-xs text-[var(--text-secondary)]">
+        <a className="transition-colors hover:text-[var(--primary)]" href="/privacy">سياسة الخصوصية</a>
+        <a className="transition-colors hover:text-[var(--primary)]" href="/terms">شروط الاستخدام</a>
+        <span>© {new Date().getFullYear()} معين الأستاذ</span>
+      </footer>
     </main>
   );
 }
