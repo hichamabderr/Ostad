@@ -4,6 +4,7 @@ import type { AppState } from '@/lib/storage';
 import type { ClassRoom, Student, StudentGrade } from '@/lib/types';
 import type { Database } from './database.types';
 import { stableUuid } from './migrate-local-state';
+import { getWeeklyHours } from '@/lib/curriculum-data';
 
 type Client = SupabaseClient<Database>;
 
@@ -179,7 +180,7 @@ export async function saveCoreState(
     name: item.name.trim(),
     level: item.level,
     section: item.stream || null,
-    weekly_hours: item.level === '1AS_SCIENCE' ? 1 : 2,
+    weekly_hours: getWeeklyHours(item.level),
     academic_year: state.profile.academicYear || null,
     notes: null,
     sync_revision: syncMetadata?.revision || 0,
@@ -316,7 +317,6 @@ export async function saveCoreState(
     if (gradesResult.error) throw gradesResult.error;
 
     const remoteSettings = (existingSettings.data?.settings || {}) as Partial<AppState>;
-    const deletedLocalIds = new Set(state.deletedRecordIds || []);
     const deletedRemoteKeys = new Set(
       existingTombstones.data.map((item) => `${item.entity_type}:${item.entity_id}`),
     );
@@ -324,7 +324,7 @@ export async function saveCoreState(
     const mergeArrays = <T extends { id: string }>(local: T[], remote: T[] = [], entityType?: SyncEntityType) => {
       const map = new Map<string, T>();
       for (const item of remote) {
-        if (!deletedLocalIds.has(item.id) && (!entityType || !deletedRemoteKeys.has(`${entityType}:${item.id}`))) {
+        if (!entityType || !deletedRemoteKeys.has(`${entityType}:${item.id}`)) {
           map.set(item.id, item);
         }
       }

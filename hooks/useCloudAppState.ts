@@ -234,6 +234,7 @@ export function useCloudAppState(user: User | null) {
         return;
       }
       const client = createSupabaseBrowserClient();
+      const syncedDeletedIds = new Set(state.deletedRecordIds || []);
       void enqueueSyncState(user.id, state, revision, updatedAt)
         .then(() => flushSyncOutbox(client, user.id, syncingRef, (error) => {
           if (isLocalOnlyCloudError(error)) {
@@ -242,6 +243,19 @@ export function useCloudAppState(user: User | null) {
           }
           console.error('Cloud state save failed:', describeCloudError(error).message);
         }))
+        .then(async (flushed) => {
+          if (!flushed || (await listSyncOutbox(user.id)).length > 0) return;
+          setState((previous) => (
+            previous.deletedRecordIds?.length
+              ? {
+                  ...previous,
+                  deletedRecordIds: previous.deletedRecordIds.filter(
+                    (id) => !syncedDeletedIds.has(id),
+                  ),
+                }
+              : previous
+          ));
+        })
         .finally(() => {
           if (pendingSaveTimerRef.current === -1) pendingSaveTimerRef.current = null;
         });
@@ -295,6 +309,9 @@ export function useCloudAppState(user: User | null) {
         ...previous.grades.map(g => g.id),
         ...previous.sessions.map(s => s.id),
         ...previous.timetable.map(t => t.id),
+        ...previous.lessonProgress.map(progress => progress.id),
+        ...previous.customUnits.map(unit => unit.id),
+        ...previous.lessonPlans.map(plan => plan.id),
       ]);
       const nextIds = new Set([
         ...next.classes.map(c => c.id),
@@ -302,13 +319,19 @@ export function useCloudAppState(user: User | null) {
         ...next.grades.map(g => g.id),
         ...next.sessions.map(s => s.id),
         ...next.timetable.map(t => t.id),
+        ...next.lessonProgress.map(progress => progress.id),
+        ...next.customUnits.map(unit => unit.id),
+        ...next.lessonPlans.map(plan => plan.id),
       ]);
       const newlyDeleted = [...prevIds].filter(id => !nextIds.has(id));
       
       if (newlyDeleted.length > 0) {
         return {
           ...next,
-          deletedRecordIds: [...(previous.deletedRecordIds || []), ...newlyDeleted]
+          deletedRecordIds: Array.from(new Set([
+            ...(previous.deletedRecordIds || []),
+            ...newlyDeleted,
+          ])),
         };
       }
       

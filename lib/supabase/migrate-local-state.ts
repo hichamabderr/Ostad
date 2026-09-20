@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AppState } from '@/lib/storage';
 import type { Database } from './database.types';
+import { getWeeklyHours } from '@/lib/curriculum-data';
 
 const MIGRATION_NAMESPACE = '8d7f1a0a-3d80-4d63-a4eb-8d4ef2bfbb28';
 
@@ -50,7 +51,7 @@ export async function migrateLocalCoreData(
     name: item.name.trim(),
     level: item.level,
     section: item.stream,
-    weekly_hours: item.level === '1AS_SCIENCE' ? 1 : 2,
+    weekly_hours: getWeeklyHours(item.level),
     academic_year: state.profile.academicYear || null,
     notes: null,
   }));

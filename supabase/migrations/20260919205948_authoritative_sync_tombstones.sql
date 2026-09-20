@@ -70,5 +70,3 @@ create trigger grades_reject_stale_sync before insert or update on public.grades
 
 revoke all on table public.sync_tombstones from anon;
 revoke execute on function public.reject_stale_sync_row() from public, anon, authenticated;
-
-truncate table public.sync_conflicts, public.app_settings, public.grades, public.students, public.classes, public.sync_tombstones cascade;

@@ -7,6 +7,7 @@ import { showToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { AppState } from'@/lib/storage';
 import { TimetableSlot, ClassRoom } from'@/lib/types';
+import { getWeeklyHours } from '@/lib/curriculum-data';
 import {
  CalendarDays,
  Plus,
@@ -79,7 +80,7 @@ export const TimetableSanad: React.FC<TimetableSanadProps> = ({
  : ALL_HOURS;
 
  const getWeeklyQuotaForClass = (cls: ClassRoom | undefined): number =>
-   cls?.level === '1AS_SCIENCE' ? 1 : 2;
+   getWeeklyHours(cls?.level);
 
  const handleOpenAddModal = (day?: 0 | 1 | 2 | 3 | 4, startHour?: string) => {
  setEditingSlotId(null);
