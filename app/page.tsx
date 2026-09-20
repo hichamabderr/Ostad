@@ -10,7 +10,11 @@ import { TopHeaderSanad } from '@/components/TopHeaderSanad';
 import { MobileNavigation } from '@/components/MobileNavigation';
 import { OfflineIndicator } from '@/components/OfflineIndicator';
 import { AuthGate } from '@/components/AuthGate';
+import { ComingSoon } from '@/components/ComingSoon';
 import { CurriculumUnit } from '@/lib/types';
+
+const MAINTENANCE_MODE = process.env.NEXT_PUBLIC_MAINTENANCE_MODE === 'true';
+const ADMIN_EMAIL = 'hichamdevpro@gmail.com';
 
 const ViewLoading = () => (
   <div className="flex min-h-64 items-center justify-center" aria-live="polite">
@@ -301,5 +305,20 @@ function AppContent({ user, onSignOut }: { user: User | null; onSignOut: () => v
 }
 
 export default function Page() {
-  return <AuthGate>{(user, onSignOut) => <AppContent user={user} onSignOut={onSignOut} />}</AuthGate>;
+  const [revealLogin, setRevealLogin] = useState(false);
+
+  if (MAINTENANCE_MODE && !revealLogin) {
+    return <ComingSoon onRequestLogin={() => setRevealLogin(true)} />;
+  }
+
+  return (
+    <AuthGate>
+      {(user, onSignOut) => {
+        if (MAINTENANCE_MODE && user?.email !== ADMIN_EMAIL) {
+          return <ComingSoon onRequestLogin={() => {}} />;
+        }
+        return <AppContent user={user} onSignOut={onSignOut} />;
+      }}
+    </AuthGate>
+  );
 }
