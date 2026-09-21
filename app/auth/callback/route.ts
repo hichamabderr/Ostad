@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getPublicAppUrl } from '@/lib/supabase/env';
+import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -12,10 +13,18 @@ export async function GET(request: Request) {
     return NextResponse.redirect(new URL('/?auth=error&reason=missing_code', origin));
   }
 
-  // Keep the PKCE exchange in the browser so the browser client receives and
-  // persists the session in the same storage used by AuthGate.
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) {
+    return NextResponse.redirect(new URL('/?auth=error&reason=missing_supabase_config', origin));
+  }
+
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error) {
+    console.error('OAuth code exchange failed:', error);
+    return NextResponse.redirect(new URL('/?auth=error&reason=code_exchange_failed', origin));
+  }
+
   const destination = new URL(safeNext, origin);
-  destination.searchParams.set('code', code);
   return NextResponse.redirect(destination);
 }
 
