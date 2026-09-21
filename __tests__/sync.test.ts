@@ -22,7 +22,7 @@ import {
   selectStudentsByClass,
 } from '@/lib/state-selectors';
 import { getSyncOperationsForState } from '@/lib/sync-outbox';
-import { getDeletedRecordIds } from '@/hooks/useCloudAppState';
+import { getDeletedRecordIds, isAuthenticatedOwner } from '@/hooks/useCloudAppState';
 import {
   applySyncOutboxEntry,
   getCloudRecordId,
@@ -45,6 +45,12 @@ import {
 } from '@/lib/supabase/avatar-outbox';
 
 describe('sync outbox', () => {
+  it('rejects a stale owner after logout before starting a cloud write', () => {
+    expect(isAuthenticatedOwner('owner-1', 'owner-1')).toBe(true);
+    expect(isAuthenticatedOwner(undefined, 'owner-1')).toBe(false);
+    expect(isAuthenticatedOwner('owner-2', 'owner-1')).toBe(false);
+  });
+
   it('resolves shared state slices with a safe active class fallback', () => {
     const state = getEmptyState();
     state.classes = [

@@ -109,20 +109,37 @@ export function getDeletedRecordIds(previous: AppState, next: AppState): string[
   return Array.from(new Set(deleted));
 }
 
-async function flushSyncOutbox(
+export function isAuthenticatedOwner(authenticatedUserId: string | undefined, ownerId: string): boolean {
+  return authenticatedUserId === ownerId;
+}
+
+async function hasAuthenticatedOwner(
+  client: ReturnType<typeof createSupabaseBrowserClient>,
+  ownerId: string,
+): Promise<boolean> {
+  if (!client) return false;
+  const { data, error } = await client.auth.getUser();
+  return !error && isAuthenticatedOwner(data.user?.id, ownerId);
+}
+
+export async function flushSyncOutbox(
   client: ReturnType<typeof createSupabaseBrowserClient>,
   ownerId: string,
   syncingRef: { current: boolean },
   onError: (error: unknown) => void,
 ): Promise<boolean> {
   if (!client || syncingRef.current) return false;
+  if (!(await hasAuthenticatedOwner(client, ownerId))) return false;
 
   syncingRef.current = true;
   let completed = false;
   try {
+    if (!(await hasAuthenticatedOwner(client, ownerId))) return false;
     await flushAvatarOutbox(ownerId);
+    if (!(await hasAuthenticatedOwner(client, ownerId))) return false;
     await flushMemorandaOutbox();
     while (true) {
+      if (!(await hasAuthenticatedOwner(client, ownerId))) return false;
       const entries = await listSyncOutbox(ownerId);
       const entry = entries[0];
       if (!entry) {
@@ -150,7 +167,7 @@ async function flushSyncOutbox(
     if (completed) {
       void listSyncOutbox(ownerId)
         .then((entries) => {
-          if (entries.length > 0) {
+          if (entries.length > 0 && client && !syncingRef.current) {
             void flushSyncOutbox(client, ownerId, syncingRef, onError);
           }
         })
@@ -260,6 +277,18 @@ export function useCloudAppState(user: User | null) {
     }
 
     let active = true;
+    const { data: authListener } = client.auth.onAuthStateChange((event) => {
+      if (event !== 'SIGNED_OUT') return;
+      active = false;
+      saveGenerationRef.current += 1;
+      if (pendingSaveTimerRef.current !== null && pendingSaveTimerRef.current !== -1) {
+        window.clearTimeout(pendingSaveTimerRef.current);
+        pendingSaveTimerRef.current = null;
+      }
+      setCloudStatus('ready');
+      setSyncError(null);
+      setConflicts([]);
+    });
     window.setTimeout(() => {
       if (active) setCloudStatus('loading');
     }, 0);
@@ -282,6 +311,7 @@ export function useCloudAppState(user: User | null) {
       });
 
     const refreshRemoteState = async () => {
+      if (!active || !(await hasAuthenticatedOwner(client, user.id))) return;
       if (syncingRef.current || pendingSaveTimerRef.current !== null || (await listSyncOutbox(user.id)).length > 0) return;
 
       const remoteState = await loadCoreState(client, latestStateRef.current);
@@ -319,6 +349,7 @@ export function useCloudAppState(user: User | null) {
 
     return () => {
       active = false;
+      authListener.subscription.unsubscribe();
       void client.removeChannel(channel);
     };
   // The subscription is intentionally scoped to the authenticated user.
@@ -342,8 +373,14 @@ export function useCloudAppState(user: User | null) {
       }
       const client = createSupabaseBrowserClient();
       const syncedDeletedIds = new Set(state.deletedRecordIds || []);
-      void enqueueSyncState(user.id, state, revision, updatedAt)
-        .then(() => flushSyncOutbox(client, user.id, syncingRef, (error) => {
+      void hasAuthenticatedOwner(client, user.id)
+        .then((authenticated) => {
+          if (!authenticated || saveGeneration !== saveGenerationRef.current) return null;
+          return enqueueSyncState(user.id, state, revision, updatedAt);
+        })
+        .then((enqueued) => {
+          if (!enqueued) return false;
+          return flushSyncOutbox(client, user.id, syncingRef, (error) => {
           if (isLocalOnlyCloudError(error)) {
             setCloudStatus('local-only');
             return;
@@ -353,7 +390,8 @@ export function useCloudAppState(user: User | null) {
           setCloudStatus(error instanceof Error && error.name === 'SyncConflictError' ? 'conflict' : 'sync-failed');
           void registerConflict(error);
           console.error('Cloud state save failed:', message);
-        }))
+          });
+        })
         .then(async (flushed) => {
           if (!flushed || (await listSyncOutbox(user.id)).length > 0) return;
           setSyncError(null);
