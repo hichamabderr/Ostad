@@ -45,7 +45,7 @@ export const LessonPreparation: React.FC<LessonPreparationProps> = ({
   initialUnit,
   initialTab
 }) => {
-  const { state, updateState: onUpdateState } = useAppState();
+  const { state, updateStateAndWait } = useAppState();
   const allUnits = useMemo(() => getMergedCurriculumUnits(state.customUnits), [state.customUnits]);
   const [curriculumLoaded, setCurriculumLoaded] = useState(false);
 
@@ -187,80 +187,63 @@ export const LessonPreparation: React.FC<LessonPreparationProps> = ({
     }
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const dataUrl = e.target?.result as string;
       const fileName = file.name;
       const storageKey = binaryKeyForPdf(currentUnit.id);
 
-      void saveBinaryFile(storageKey, dataUrl).then(() => {
+      try {
+        await saveBinaryFile(storageKey, dataUrl);
         setPdfData({ key: storageKey, url: dataUrl });
-        onUpdateState(prev => ({
+        const { storagePath } = await uploadTeacherMemorandum(currentUnit.id, file);
+        await updateStateAndWait(prev => ({
           ...prev,
           unitPdfFiles: {
             ...(prev.unitPdfFiles || {}),
             [currentUnit.id]: {
               fileName,
               fileStorageKey: storageKey,
-              uploadedAt: new Date().toISOString().split('T')[0]
+              uploadedAt: new Date().toISOString().split('T')[0],
+              cloudStoragePath: storagePath,
             }
           }
         }));
-        void uploadTeacherMemorandum(currentUnit.id, file)
-          .then(({ storagePath }) => {
-            onUpdateState(prev => ({
-              ...prev,
-              unitPdfFiles: {
-                ...(prev.unitPdfFiles || {}),
-                [currentUnit.id]: {
-                  ...(prev.unitPdfFiles?.[currentUnit.id] || {
-                    fileName,
-                    fileStorageKey: storageKey,
-                    uploadedAt: new Date().toISOString().split('T')[0],
-                  }),
-                  cloudStoragePath: storagePath,
-                },
-              },
-            }));
-            return getMemorandumUrl(currentUnit.id);
-          })
-          .then(url => {
-            if (url) setCloudPdfData({ unitId: currentUnit.id, url });
-          })
-          .catch(error => {
-            console.warn('Cloud memorandum upload deferred:', error);
-          });
-      }).catch(() => {
-        showToast('تعذر حفظ ملف PDF محلياً. يرجى تصدير نسخة احتياطية أو تحرير مساحة التخزين.', 'error');
-      });
-
-      setPdfUploadNotice(`تم إرفاق ملف المذكرة «${fileName}» بنجاح للوحدة.`);
-      setActiveTab('pdf');
-      setTimeout(() => setPdfUploadNotice(null), 4000);
+        const url = await getMemorandumUrl(currentUnit.id);
+        if (url) setCloudPdfData({ unitId: currentUnit.id, url });
+        setPdfUploadNotice(`تم تأكيد إرفاق ملف المذكرة «${fileName}» في السحابة.`);
+        setActiveTab('pdf');
+        setTimeout(() => setPdfUploadNotice(null), 4000);
+      } catch (error) {
+        console.error('PDF upload failed:', error);
+        showToast(error instanceof Error ? error.message : 'تعذر تأكيد حفظ ملف PDF في السحابة.', 'error');
+      }
     };
     reader.readAsDataURL(file);
   };
 
   // Delete attached PDF
-  const handleDeletePdf = () => {
+  const handleDeletePdf = async () => {
     if (!currentUnit || !deleteConfirmId) return;
-    void cancelMemorandaUpload(currentUnit.id).catch(error => {
-      console.warn('Unable to cancel pending memorandum upload:', error);
-    });
-    onUpdateState(prev => {
+    try {
+      await cancelMemorandaUpload(currentUnit.id);
+      if (attachedPdf?.cloudStoragePath) {
+        await deleteTeacherMemorandum(attachedPdf.cloudStoragePath);
+      }
+      await updateStateAndWait(prev => {
       const nextPdfs = { ...(prev.unitPdfFiles || {}) };
       delete nextPdfs[currentUnit.id];
       return {
         ...prev,
         unitPdfFiles: nextPdfs
       };
-    });
+      });
+    } catch (error) {
+      console.error('PDF delete failed:', error);
+      showToast(error instanceof Error ? error.message : 'تعذر حذف ملف PDF من السحابة.', 'error');
+      return;
+    }
     if (attachedPdf?.fileStorageKey) {
       void deleteBinaryFile(attachedPdf.fileStorageKey);
-    }
-    if (attachedPdf?.cloudStoragePath) {
-      void deleteTeacherMemorandum(attachedPdf.cloudStoragePath).catch(error => {
-        console.warn('Cloud memorandum deletion deferred:', error);
-      });
     }
     setPdfData(undefined);
     setPdfUploadNotice('تمت إزالة ملف الـ PDF من هذه الوحدة.');

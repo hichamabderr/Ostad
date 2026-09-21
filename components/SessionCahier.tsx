@@ -88,7 +88,7 @@ const FormattingBar: React.FC<FormattingBarProps> = ({ setter }) => {
 };
 
 export const SessionCahier: React.FC<SessionCahierProps> = () => {
-  const { state, updateState: onUpdateState } = useAppState();
+  const { state, updateStateAndWait } = useAppState();
   const activeClass = state.classes.find(c => c.id === state.activeClassId);
 
   const availableUnits = getMergedCurriculumUnits(state.customUnits).filter(
@@ -195,7 +195,7 @@ export const SessionCahier: React.FC<SessionCahierProps> = () => {
   );
 
   // Save Session
-  const handleSaveSession = () => {
+  const handleSaveSession = async () => {
     if (!state.activeClassId) {
       showToast('يرجى تحديد القسم أولاً', 'error');
       return;
@@ -216,7 +216,8 @@ export const SessionCahier: React.FC<SessionCahierProps> = () => {
       attendance: {}
     };
 
-    onUpdateState(prev => {
+    try {
+      await updateStateAndWait(prev => {
       const existingProgIdx = prev.lessonProgress.findIndex(
         p => p.classId === prev.activeClassId && p.unitId === effectiveSelectedUnitId
       );
@@ -242,23 +243,30 @@ export const SessionCahier: React.FC<SessionCahierProps> = () => {
         sessions: [newSession, ...prev.sessions],
         lessonProgress: newProg
       };
-    });
+      });
 
-    setSavedSuccessMsg(true);
-    setTimeout(() => setSavedSuccessMsg(false), 3500);
-
-    // Reset accomplishments for next entry
-    setAccomplishments('');
-    setNextSteps('');
-    setNotes('');
+      setSavedSuccessMsg(true);
+      setTimeout(() => setSavedSuccessMsg(false), 3500);
+      setAccomplishments('');
+      setNextSteps('');
+      setNotes('');
+    } catch (error) {
+      console.error('Session save failed:', error);
+      showToast('تعذر حفظ الحصة في السحابة.', 'error');
+    }
   };
 
-  const handleDeleteSession = (sessionId: string) => {
-    onUpdateState(prev => ({
-      ...prev,
-      sessions: prev.sessions.filter(s => s.id !== sessionId)
-    }));
-    setDeleteConfirmId(null);
+  const handleDeleteSession = async (sessionId: string) => {
+    try {
+      await updateStateAndWait(prev => ({
+        ...prev,
+        sessions: prev.sessions.filter(s => s.id !== sessionId)
+      }));
+      setDeleteConfirmId(null);
+    } catch (error) {
+      console.error('Session delete failed:', error);
+      showToast('تعذر حذف الحصة من السحابة.', 'error');
+    }
   };
 
   const classPastSessions = state.sessions.filter(

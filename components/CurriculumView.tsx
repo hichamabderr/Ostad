@@ -1,6 +1,7 @@
 'use client';
 
 import { ConfirmDialog } from './ConfirmDialog';
+import { showToast } from '@/components/Toast';
 import { useAppState } from '@/hooks/app-state-context';
 import React, { useState } from 'react';
 import { AppState } from '@/lib/storage';
@@ -34,7 +35,7 @@ interface CurriculumViewProps {
 export const CurriculumView: React.FC<CurriculumViewProps> = ({
   onPrepareUnit
 }) => {
-  const { state, updateState: onUpdateState } = useAppState();
+  const { state, updateStateAndWait } = useAppState();
   const [, setLoaded] = useState(false);
   useEffect(() => {
     loadAllCurriculum().then(() => setLoaded(true));
@@ -86,8 +87,9 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
     return prog?.notes || '';
   };
 
-  const handleSaveUnitNote = (unitId: string) => {
-    onUpdateState(prev => {
+  const handleSaveUnitNote = async (unitId: string) => {
+    try {
+      await updateStateAndWait(prev => {
       const existingIdx = prev.lessonProgress.findIndex(
         p => p.classId === prev.activeClassId && p.unitId === unitId,
       );
@@ -107,8 +109,12 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
         });
       }
       return { ...prev, lessonProgress: updated };
-    });
-    setEditingNoteId(null);
+      });
+      setEditingNoteId(null);
+    } catch (error) {
+      console.error('Curriculum note save failed:', error);
+      showToast('تعذر حفظ ملاحظة الوحدة في السحابة.', 'error');
+    }
   };
 
   // Group by official sections: المقطع الأول - المقطع الثاني - المقطع الثالث
@@ -135,9 +141,10 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
     return progress?.status || 'NOT_STARTED';
   };
 
-  const setUnitStatus = (unitId: string, status: LessonStatus) => {
+  const setUnitStatus = async (unitId: string, status: LessonStatus) => {
     if (!state.activeClassId) return;
-    onUpdateState(prev => {
+    try {
+      await updateStateAndWait(prev => {
       const existingIdx = prev.lessonProgress.findIndex(
         p => p.classId === prev.activeClassId && p.unitId === unitId
       );
@@ -158,7 +165,11 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
         });
       }
       return { ...prev, lessonProgress: updatedProgress };
-    });
+      });
+    } catch (error) {
+      console.error('Curriculum status save failed:', error);
+      showToast('تعذر حفظ حالة الوحدة في السحابة.', 'error');
+    }
   };
 
   const handleOpenAddUnit = () => {
@@ -184,10 +195,11 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
     setIsEditingModalOpen(true);
   };
 
-  const handleSaveUnit = () => {
+  const handleSaveUnit = async () => {
     if (!editingUnit || !editingUnit.title) return;
 
-    onUpdateState(prev => {
+    try {
+      await updateStateAndWait(prev => {
       // Check if it's already in customUnits or if we're overriding an official unit
       const isCustom = prev.customUnits.some(u => u.id === editingUnit.id);
       let updatedCustom: CurriculumUnit[] = [];
@@ -204,18 +216,26 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
         ];
       }
       return { ...prev, customUnits: updatedCustom };
-    });
-
-    setIsEditingModalOpen(false);
-    setEditingUnit(null);
+      });
+      setIsEditingModalOpen(false);
+      setEditingUnit(null);
+    } catch (error) {
+      console.error('Custom unit save failed:', error);
+      showToast('تعذر حفظ الوحدة المخصصة في السحابة.', 'error');
+    }
   };
 
-  const handleDeleteCustomUnit = (unitId: string) => {
-    onUpdateState(prev => ({
-      ...prev,
-      customUnits: prev.customUnits.filter(u => u.id !== unitId)
-    }));
-    setDeleteConfirmId(null);
+  const handleDeleteCustomUnit = async (unitId: string) => {
+    try {
+      await updateStateAndWait(prev => ({
+        ...prev,
+        customUnits: prev.customUnits.filter(u => u.id !== unitId)
+      }));
+      setDeleteConfirmId(null);
+    } catch (error) {
+      console.error('Custom unit delete failed:', error);
+      showToast('تعذر حذف الوحدة المخصصة من السحابة.', 'error');
+    }
   };
 
   const statusLabels: Record<LessonStatus, { label: string; bg: string; text: string }> = {

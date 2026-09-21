@@ -35,7 +35,7 @@ interface SettingsSanadProps {
 export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
   const {
     state,
-    updateState: onUpdateState,
+    updateStateAndWait,
     replaceStateFromBackup,
     clearRosterData,
   } = useAppState();
@@ -60,12 +60,18 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
   const pdfArchiveInputRef = useRef<HTMLInputElement>(null);
 
   const handleSaveSettings = () => {
-    onUpdateState((prev) => ({
+    void updateStateAndWait((prev) => ({
       ...prev,
       calendarSettings,
-    }));
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3000);
+    }))
+      .then(() => {
+        setSavedSuccess(true);
+        setTimeout(() => setSavedSuccess(false), 3000);
+      })
+      .catch((error: unknown) => {
+        console.error("Calendar settings save failed:", error);
+        showToast("تعذر حفظ إعدادات التقويم في السحابة.", "error");
+      });
   };
 
   const handleClearClassesData = () => {
@@ -197,7 +203,7 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
     if (!file) return;
     try {
       const restored = await restorePdfBackupArchive(file);
-      onUpdateState(prev => ({
+      await updateStateAndWait(prev => ({
         ...prev,
         unitPdfFiles: { ...(prev.unitPdfFiles || {}), ...restored },
       }));

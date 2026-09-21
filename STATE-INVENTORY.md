@@ -97,7 +97,7 @@ Supabase، بينما تُحمّل النسخة السحابية الحالية 
 | الكيانات الدراسية والتدريسية | نعم | نعم | نعم | يحتاج اختبارات مجال أوسع |
 | attendance/behavior/tasks | نعم | نعم | نعم | tombstones موجودة |
 | profile/settings | نعم | نعم | نعم | يحتاج اختبار تعارض خاص |
-| PDF metadata وStorage | نعم | نعم | metadata | يحتاج اختبار تكاملي |
+| PDF metadata وStorage | نعم | نعم | metadata | الرفع والحذف واستعادة metadata تنتظر تأكيد السحابة؛ يحتاج اختبار تكاملي |
 | Excel imports | نعم | نعم | نعم عبر الصفوف الناتجة | RPC ذري `import_roster_batch` مع fallback إلى outbox |
 | avatar binary | مسار Storage | نعم | لا | `avatars` bucket مع outbox محلي؛ يعاد إنشاء signed URL عند التحميل، وتدعم الإزالة outbox |
 | retry/backoff | نعم | نعم | لا | محاولة مؤجلة بتزايد أسي حتى 5 دقائق مع حفظ attempts/nextAttemptAt |
@@ -125,6 +125,9 @@ Supabase، بينما تُحمّل النسخة السحابية الحالية 
 - إعادة تعيين الأقسام والتلاميذ تمر الآن عبر `clearRosterData`، فتكتب الحالة
   الفارغة إلى cache وتدفع tombstones/عمليات الحذف إلى outbox فوراً، ولا تعرض
   نجاحاً قبل إقرار Supabase؛ يمنع ذلك عودة الأرقام القديمة عند فتح لوحة التحكم.
+- إعدادات التقويم واستعادة أرشيف PDF لا تعرض النجاح قبل اكتمال
+  `updateStateAndWait`، كما أن رفع وحذف مذكرة PDF ينتظران Storage وmetadata
+  السحابيين قبل تحديث واجهة النجاح.
 - تحذير Supabase الوحيد المتبقي هو Leaked Password Protection الخارجي
   المستبعد بطلب المستخدم.
 - حالة المزامنة تعرض الآن في `TopHeaderSanad` مع إجراء إعادة المحاولة، إضافة إلى

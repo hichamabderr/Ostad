@@ -113,34 +113,31 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
   }
 
   // Handle setting status for a student in active session
-  const handleSetStudentStatus = (studentId: string, status: AttendanceStatus) => {
+  const handleSetStudentStatus = async (studentId: string, status: AttendanceStatus) => {
     if (!activeSession) return;
     
     triggerHapticFeedback();
 
-    onUpdateState(prev => ({
-      ...prev,
-      sessions: prev.sessions.map(ses => {
-        if (ses.id === activeSession.id) {
-          return {
-            ...ses,
-            attendance: {
-              ...(ses.attendance || {}),
-              [studentId]: status
-            }
-          };
-        }
-        return ses;
-      })
-    }));
+    try {
+      await updateStateAndWait(prev => ({
+        ...prev,
+        sessions: prev.sessions.map(ses => ses.id === activeSession.id
+          ? { ...ses, attendance: { ...(ses.attendance || {}), [studentId]: status } }
+          : ses)
+      }));
+    } catch (error) {
+      console.error('Attendance status sync failed:', error);
+      showToast('تعذر حفظ حالة الحضور في السحابة.', 'error');
+    }
   };
 
-  const handleToggleBehavior = (studentId: string, behaviorType: 'disruptions' | 'unwrittenLessons' | 'poorParticipation' | 'goodParticipation') => {
+  const handleToggleBehavior = async (studentId: string, behaviorType: 'disruptions' | 'unwrittenLessons' | 'poorParticipation' | 'goodParticipation') => {
     if (!activeSession) return;
 
-    onUpdateState(prev => ({
-      ...prev,
-      sessions: prev.sessions.map(ses => {
+    try {
+      await updateStateAndWait(prev => ({
+        ...prev,
+        sessions: prev.sessions.map(ses => {
         if (ses.id === activeSession.id) {
           const arr = ses[behaviorType] || [];
           const exists = arr.includes(studentId);
@@ -158,21 +155,26 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
           return updatedSes;
         }
         return ses;
-      })
-    }));
+        })
+      }));
+    } catch (error) {
+      console.error('Attendance behavior sync failed:', error);
+      showToast('تعذر حفظ متابعة التلميذ في السحابة.', 'error');
+    }
   };
 
   // Mark all students present in active session
-  const handleMarkAllPresent = () => {
+  const handleMarkAllPresent = async () => {
     if (!activeSession) return;
     const allPresentMap: Record<string, AttendanceStatus> = {};
     for (const s of classStudents) {
       allPresentMap[s.id] = 'PRESENT';
     }
 
-    onUpdateState(prev => ({
-      ...prev,
-      sessions: prev.sessions.map(ses => {
+    try {
+      await updateStateAndWait(prev => ({
+        ...prev,
+        sessions: prev.sessions.map(ses => {
         if (ses.id === activeSession.id) {
           return {
             ...ses,
@@ -180,12 +182,16 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
           };
         }
         return ses;
-      })
-    }));
+        })
+      }));
+    } catch (error) {
+      console.error('Mark all present sync failed:', error);
+      showToast('تعذر حفظ الحضور الجماعي في السحابة.', 'error');
+    }
   };
 
   // Create new session for today
-  const handleCreateTodaySession = () => {
+  const handleCreateTodaySession = async () => {
     const todayStr = getLocalDateString();
     const newSession: SessionRecord = {
       id: `ses-${uuidv4()}`,
@@ -199,11 +205,16 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
       teacherNotes: '', attendance: {},
       };
 
-    onUpdateState(prev => ({
-      ...prev,
-      sessions: [newSession, ...prev.sessions]
-    }));
-    setSelectedSessionId(newSession.id);
+    try {
+      await updateStateAndWait(prev => ({
+        ...prev,
+        sessions: [newSession, ...prev.sessions]
+      }));
+      setSelectedSessionId(newSession.id);
+    } catch (error) {
+      console.error('Create session sync failed:', error);
+      showToast('تعذر إنشاء الحصة في السحابة.', 'error');
+    }
   };
 
   // Generate sessions for the active trimester according to the weekly timetable

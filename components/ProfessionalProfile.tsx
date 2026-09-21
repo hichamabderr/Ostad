@@ -29,7 +29,7 @@ interface ProfessionalProfileProps {
 
 export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
 }) => {
-  const { state, updateState: onUpdateState } = useAppState();
+  const { state, updateStateAndWait } = useAppState();
   const [profile, setProfile] = useState<TeacherProfile>({
     ...state.profile,
   });
@@ -99,14 +99,19 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
     }
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdateState((prev) => ({
-      ...prev,
-      profile: { ...profile },
-    }));
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3000);
+    try {
+      await updateStateAndWait((prev) => ({
+        ...prev,
+        profile: { ...profile },
+      }));
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3000);
+    } catch (error) {
+      console.error('Profile save failed:', error);
+      showToast('تعذر حفظ الملف الشخصي في السحابة.', 'error');
+    }
   };
 
   const handleExportCard = () => {

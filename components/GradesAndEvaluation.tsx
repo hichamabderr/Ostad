@@ -244,7 +244,7 @@ interface GradesAndEvaluationProps {
 }
 
 export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
-  const { state, updateState: onUpdateState } = useAppState();
+  const { state, updateState: onUpdateState, updateStateAndWait } = useAppState();
   const [selectedClassId, setSelectedClassId] = useState<string>(
     state.activeClassId || (state.classes[0]?.id || '')
   );
@@ -461,7 +461,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
     setTimeout(() => setSaveToast(false), 3500);
   };
 
-  const persistDraftGrades = () => {
+  const persistDraftGrades = async () => {
     const updatedGradesList: StudentGrade[] = [...state.grades];
 
     for (const student of classStudents) {
@@ -500,7 +500,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
       }
     }
 
-    onUpdateState(prev => ({
+    await updateStateAndWait(prev => ({
       ...prev,
       grades: updatedGradesList
     }));
@@ -510,8 +510,14 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
     setSaveStatus('pending');
     const timer = window.setTimeout(() => {
       setSaveStatus('saving');
-      persistDraftGrades();
-      setSaveStatus('saved');
+      void persistDraftGrades()
+        .then(() => setSaveStatus('saved'))
+        .catch((error: unknown) => {
+          console.error('Grades sync failed:', error);
+          setSaveStatus('pending');
+          setToastMessage('تعذر حفظ النقاط في السحابة.');
+          setSaveToast(true);
+        });
     }, 900);
     return () => window.clearTimeout(timer);
   // Persist the current draft snapshot without retriggering after the state update.
@@ -521,8 +527,18 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
   const handleSaveAllGrades = () => {
     triggerHapticFeedback();
     setSaveStatus('saving');
-    persistDraftGrades();
-    setSaveStatus('saved');
+    void persistDraftGrades()
+      .then(() => {
+        setSaveStatus('saved');
+        setToastMessage('تم تأكيد حفظ النقاط في Supabase.');
+        setSaveToast(true);
+      })
+      .catch((error: unknown) => {
+        console.error('Grades sync failed:', error);
+        setSaveStatus('pending');
+        setToastMessage('تعذر حفظ النقاط في السحابة.');
+        setSaveToast(true);
+      });
 
     const incompleteCount = classStudents.filter(student => {
       const draft = gradesDraft[student.id];
