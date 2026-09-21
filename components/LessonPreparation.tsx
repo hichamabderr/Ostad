@@ -110,7 +110,7 @@ export const LessonPreparation: React.FC<LessonPreparationProps> = ({
     attachedPdf?.fileStorageKey && pdfData?.key === attachedPdf.fileStorageKey
       ? pdfData.url
       : attachedPdf?.fileDataUrl;
-  const cloudPdfUrl = cloudPdfData?.unitId === currentUnit?.id ? cloudPdfData.url : undefined;
+  const cloudPdfUrl = (cloudPdfData && currentUnit && cloudPdfData.unitId === currentUnit.id) ? cloudPdfData.url : undefined;
   const isLocalPdfPending = Boolean(attachedPdf?.fileStorageKey && !localPdfUrl);
   const activePdfUrl = isLocalPdfPending
     ? null

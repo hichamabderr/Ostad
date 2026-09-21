@@ -1818,8 +1818,10 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
                 {editingClass.name ? 'تعديل القسم' : 'إضافة قسم جديد'}
               </h3>
               <button
+                type="button"
                 onClick={() => setIsClassModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-700" >
+                className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer rounded-lg"
+                aria-label="إغلاق النافذة" >
                 <X className="w-5 h-5" />
               </button>
             </div>
