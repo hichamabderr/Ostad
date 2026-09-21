@@ -10,7 +10,7 @@ export function exportUnitToWordDoc(unit: CurriculumUnit, teacherProfile?: Teach
   const levelName = levelObj?.name || (unit.level === '1AS_SCIENCE' ? 'السنة الأولى ثانوي — جذع مشترك علوم وتكنولوجيا' : unit.level);
   const teacherName = teacherProfile?.name || 'أستاذ المادة';
   const schoolName = teacherProfile?.schoolName || 'ثانوية التعليم الثانوي';
-  const academicYear = teacherProfile?.academicYear || '2023 / 2024 م';
+  const academicYear = teacherProfile?.academicYear || '2025 / 2026 م';
 
   const learningObjective = unit.learningObjective || unit.targetedCompetence || '';
   const targetedResources = unit.targetedResources || unit.learningObjectives || [];

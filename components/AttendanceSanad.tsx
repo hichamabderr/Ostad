@@ -67,6 +67,9 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [showGenerateConfirm, setShowGenerateConfirm] = useState(false);
 
+  const activeSession = classSessions.find(s => s.id === selectedSessionId) || classSessions[0];
+  const activeAttendance = activeSession?.attendance || {};
+
   const handleCycleStatus = (studentId: string) => {
     const current = activeAttendance[studentId] || 'PRESENT';
     const nextStatus = current === 'ABSENT' ? 'PRESENT' : 'ABSENT';
@@ -77,8 +80,6 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
     setSelectedClassId(classId);
     onUpdateState(prev => ({ ...prev, activeClassId: classId }));
   };
-
-  const activeSession = classSessions.find(s => s.id === selectedSessionId) || classSessions[0];
 
   // Calculate cumulative stats per student in this class across all sessions
   const studentStatsMap: Record<string, { absent: number; unwrittenLessons: number; disruptions: number; goodParticipation: number }> = {};
@@ -308,7 +309,6 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
   );
 
   // Active session stats
-  const activeAttendance = activeSession?.attendance || {};
   const absentCount = Object.values(activeAttendance).filter(v => v === 'ABSENT').length;
   // الحضور = إجمالي التلاميذ - عدد الغائبين
   const presentCount = classStudents.length - absentCount;

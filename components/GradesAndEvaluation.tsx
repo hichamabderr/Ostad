@@ -261,6 +261,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
   const [searchStudent, setSearchStudent] = useState('');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const isDirtyRef = React.useRef(false);
 
   const activeClass = state.classes.find(c => c.id === selectedClassId);
   const classStudents = state.students
@@ -280,18 +281,21 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
   useEffect(() => {
     if (state.activeClassId && state.activeClassId !== selectedClassId) {
       setSelectedClassId(state.activeClassId);
+      isDirtyRef.current = false;
       setGradesDraft(buildDraft(state.students, state.grades, state.activeClassId, selectedTrimester));
     }
   }, [state.activeClassId, selectedClassId, state.students, state.grades, selectedTrimester]);
 
   const handleSelectClass = (newClassId: string) => {
     setSelectedClassId(newClassId);
+    isDirtyRef.current = false;
     onUpdateState(prev => ({ ...prev, activeClassId: newClassId }));
     setGradesDraft(buildDraft(state.students, state.grades, newClassId, selectedTrimester));
   };
 
   const handleSelectTrimester = (newTri: 1 | 2 | 3) => {
     setSelectedTrimester(newTri);
+    isDirtyRef.current = false;
     setGradesDraft(buildDraft(state.students, state.grades, selectedClassId, newTri));
   };
 
@@ -373,6 +377,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
 
   const handleAutoFillContinuousEval = () => {
     let count = 0;
+    isDirtyRef.current = true;
     setGradesDraft(prev => {
       const next = { ...prev };
       for (const st of classStudents) {
@@ -391,6 +396,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
 
   const handleUseAutoContinuousEval = (studentId: string) => {
     const autoScore = calcAutoContinuousEval(studentId);
+    isDirtyRef.current = true;
     setGradesDraft(prev => ({
       ...prev,
       [studentId]: {
@@ -412,6 +418,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
     if (value !== '' && (isNaN(Number(value)) || Number(value) < 0 || Number(value) > 20)) {
       return;
     }
+    isDirtyRef.current = true;
     setGradesDraft(prev => ({
       ...prev,
       [studentId]: {
@@ -426,6 +433,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
     field: 'estimation' | 'guidance' | 'remarks',
     value: string
   ) => {
+    isDirtyRef.current = true;
     setGradesDraft(prev => ({
       ...prev,
       [studentId]: {
@@ -438,6 +446,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
   // تطبيق التقديرات والإرشادات آلياً لجميع التلاميذ حسب نقاطهم ومعدلاتهم المحسوبة
   const handleAutoFillPedagogicalFields = () => {
     let count = 0;
+    isDirtyRef.current = true;
     setGradesDraft(prev => {
       const next = { ...prev };
       for (const st of classStudents) {
@@ -463,56 +472,62 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
   };
 
   const persistDraftGrades = async () => {
-    const updatedGradesList: StudentGrade[] = [...state.grades];
+    await updateStateAndWait(prev => {
+      const updatedGradesList: StudentGrade[] = [...prev.grades];
 
-    for (const student of classStudents) {
-      const draft = gradesDraft[student.id] || { continuousEval: '', quiz: '', exam: '', estimation: '', guidance: '', remarks: '' };
-      const ceVal = draft.continuousEval !== '' ? Number(draft.continuousEval) : null;
-      const qVal = draft.quiz !== '' ? Number(draft.quiz) : null;
-      const exVal = draft.exam !== '' ? Number(draft.exam) : null;
+      for (const student of classStudents) {
+        const draft = gradesDraft[student.id] || { continuousEval: '', quiz: '', exam: '', estimation: '', guidance: '', remarks: '' };
+        const ceVal = draft.continuousEval !== '' ? Number(draft.continuousEval) : null;
+        const qVal = draft.quiz !== '' ? Number(draft.quiz) : null;
+        const exVal = draft.exam !== '' ? Number(draft.exam) : null;
 
-      const calcAvg = calculateStudentAverage(ceVal, qVal, exVal);
-      const estVal = draft.estimation || (calcAvg !== null ? getDefaultEstimation(calcAvg) : '');
-      const guidanceVal = draft.guidance || (calcAvg !== null ? getDefaultGuidance(calcAvg) : '');
+        const calcAvg = calculateStudentAverage(ceVal, qVal, exVal);
+        const estVal = draft.estimation || (calcAvg !== null ? getDefaultEstimation(calcAvg) : '');
+        const guidanceVal = draft.guidance || (calcAvg !== null ? getDefaultGuidance(calcAvg) : '');
 
-      const existingIndex = updatedGradesList.findIndex(
-        g => g.studentId === student.id && g.trimester === selectedTrimester
-      );
+        const existingIndex = updatedGradesList.findIndex(
+          g => g.studentId === student.id && g.trimester === selectedTrimester
+        );
 
-      const existingGrade = existingIndex >= 0 ? updatedGradesList[existingIndex] : undefined;
-      const gradeObj: StudentGrade = {
-        ...existingGrade,
-        id: existingGrade?.id || `gr-${student.id}-t${selectedTrimester}`,
-        studentId: student.id,
-        classId: selectedClassId,
-        trimester: selectedTrimester,
-        continuousEval: ceVal,
-        quiz: qVal,
-        exam: exVal,
-        calculatedAverage: calcAvg,
-        estimation: estVal,
-        guidance: guidanceVal
-      };
+        const existingGrade = existingIndex >= 0 ? updatedGradesList[existingIndex] : undefined;
+        const gradeObj: StudentGrade = {
+          ...existingGrade,
+          id: existingGrade?.id || `gr-${student.id}-t${selectedTrimester}`,
+          studentId: student.id,
+          classId: selectedClassId,
+          trimester: selectedTrimester,
+          continuousEval: ceVal,
+          quiz: qVal,
+          exam: exVal,
+          calculatedAverage: calcAvg,
+          estimation: estVal,
+          guidance: guidanceVal
+        };
 
-      if (existingIndex >= 0) {
-        updatedGradesList[existingIndex] = gradeObj;
-      } else {
-        updatedGradesList.push(gradeObj);
+        if (existingIndex >= 0) {
+          updatedGradesList[existingIndex] = gradeObj;
+        } else {
+          updatedGradesList.push(gradeObj);
+        }
       }
-    }
 
-    await updateStateAndWait(prev => ({
-      ...prev,
-      grades: updatedGradesList
-    }));
+      return {
+        ...prev,
+        grades: updatedGradesList
+      };
+    });
   };
 
   useEffect(() => {
+    if (!isDirtyRef.current) return;
     setSaveStatus('pending');
     const timer = window.setTimeout(() => {
       setSaveStatus('saving');
       void persistDraftGrades()
-        .then(() => setSaveStatus('saved'))
+        .then(() => {
+          isDirtyRef.current = false;
+          setSaveStatus('saved');
+        })
         .catch((error: unknown) => {
           console.error('Grades sync failed:', error);
           setSaveStatus('pending');

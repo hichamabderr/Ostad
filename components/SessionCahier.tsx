@@ -87,6 +87,30 @@ const FormattingBar: React.FC<FormattingBarProps> = ({ setter }) => {
   );
 };
 
+// Helper to extract official objectives from curriculum database
+function getObjectivesFromUnit(unit: CurriculumUnit): string {
+  const parts: string[] = [];
+  if (unit.learningObjective) {
+    parts.push(`• الهدف التعلمي الأساسي: ${unit.learningObjective}`);
+  }
+  if (unit.targetedCompetence) {
+    parts.push(`• الكفاءة المستهدفة: ${unit.targetedCompetence}`);
+  }
+  if (unit.targetedResources && unit.targetedResources.length > 0) {
+    parts.push(`• الموارد المعرفية والمفاهيمية المستهدفة:`);
+    unit.targetedResources.forEach(res => parts.push(`  - ${res}`));
+  }
+  if (unit.indicators && unit.indicators.length > 0) {
+    parts.push(`• مؤشرات الكفاءة والتقويم:`);
+    unit.indicators.forEach(ind => parts.push(`  - ${ind}`));
+  }
+  if (unit.referenceTexts && unit.referenceTexts.length > 0) {
+    parts.push(`• السندات الشرعية المؤطرة:`);
+    unit.referenceTexts.forEach(txt => parts.push(`  « ${txt} »`));
+  }
+  return parts.join('\n');
+}
+
 export const SessionCahier: React.FC<SessionCahierProps> = () => {
   const { state, updateStateAndWait } = useAppState();
   const activeClass = state.classes.find(c => c.id === state.activeClassId);
@@ -104,6 +128,8 @@ export const SessionCahier: React.FC<SessionCahierProps> = () => {
   const effectiveSelectedUnitId = availableUnits.some(unit => unit.id === selectedUnitId)
     ? selectedUnitId
     : availableUnits[0]?.id || '';
+  const selectedUnitObj = availableUnits.find(u => u.id === effectiveSelectedUnitId);
+  const sessionGoals = selectedUnitObj ? getObjectivesFromUnit(selectedUnitObj) : '';
   const [accomplishments, setAccomplishments] = useState('');
   const [nextSteps, setNextSteps] = useState('');
   // The notebook uses one unified text area. Legacy fields are read through
@@ -142,30 +168,6 @@ export const SessionCahier: React.FC<SessionCahierProps> = () => {
       if (!prev) return `${prefix}${suffix}`;
       return `${prev}\n${prefix}${suffix}`;
     });
-  };
-
-  // Helper to extract official objectives from curriculum database
-  const getObjectivesFromUnit = (unit: CurriculumUnit): string => {
-    const parts: string[] = [];
-    if (unit.learningObjective) {
-      parts.push(`• الهدف التعلمي الأساسي: ${unit.learningObjective}`);
-    }
-    if (unit.targetedCompetence) {
-      parts.push(`• الكفاءة المستهدفة: ${unit.targetedCompetence}`);
-    }
-    if (unit.targetedResources && unit.targetedResources.length > 0) {
-      parts.push(`• الموارد المعرفية والمفاهيمية المستهدفة:`);
-      unit.targetedResources.forEach(res => parts.push(`  - ${res}`));
-    }
-    if (unit.indicators && unit.indicators.length > 0) {
-      parts.push(`• مؤشرات الكفاءة والتقويم:`);
-      unit.indicators.forEach(ind => parts.push(`  - ${ind}`));
-    }
-    if (unit.referenceTexts && unit.referenceTexts.length > 0) {
-      parts.push(`• السندات الشرعية المؤطرة:`);
-      unit.referenceTexts.forEach(txt => parts.push(`  « ${txt} »`));
-    }
-    return parts.join('\n');
   };
 
   // When selected unit changes, fill objectives automatically from curriculum DB
@@ -272,9 +274,6 @@ export const SessionCahier: React.FC<SessionCahierProps> = () => {
   const classPastSessions = state.sessions.filter(
     s => s.classId === state.activeClassId
   );
-
-  const selectedUnitObj = availableUnits.find(u => u.id === effectiveSelectedUnitId);
-  const sessionGoals = selectedUnitObj ? getObjectivesFromUnit(selectedUnitObj) : '';
 
   // Export Cahier de texte to Word (.doc)
 
