@@ -24,8 +24,12 @@ const TAB_TITLES: Record<SanadTab, { title: string; subtitle?: string }> = {
     subtitle: "متابعة الحصص والأفواج والمهام اليومية",
   },
   classes: {
-    title: "الأقسام وقوائم التلاميذ",
-    subtitle: "إدارة الأقسام والتلاميذ، والحصص",
+    title: "الأقسام المسندة",
+    subtitle: "إدارة الأقسام المسندة والحصص الأسبوعية",
+  },
+  students: {
+    title: "قوائم التلاميذ",
+    subtitle: "إدارة قوائم التلاميذ واستيرادها",
   },
   attendance: {
     title: "التقويم المستمر والحضور",

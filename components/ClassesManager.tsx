@@ -38,6 +38,7 @@ import {
 
 interface ClassesManagerProps {
   onNavigate?: (tab: SanadTab) => void;
+  initialSubTab?: 'classes' | 'students';
 }
 
 interface ImportConflict {
@@ -54,10 +55,11 @@ interface StudentMergePair {
 }
 
 export const ClassesManager: React.FC<ClassesManagerProps> = ({
-  onNavigate
+  onNavigate,
+  initialSubTab = 'classes',
 }) => {
   const { state, updateState: onUpdateState } = useAppState();
-  const [activeSubTab, setActiveSubTab] = useState<'classes' | 'timetable' | 'students'>('classes');
+  const [activeSubTab, setActiveSubTab] = useState<'classes' | 'timetable' | 'students'>(initialSubTab);
   const [classSearch, setClassSearch] = useState('');
   const [classLevelFilter, setClassLevelFilter] = useState<GradeLevel | 'ALL'>('ALL');
 
@@ -575,7 +577,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
         targetClassIdToSelect = firstClassId;
 
         // Summary notification
-        summaryNotificationMsg = `تمت المزامنة بنجاح لـ ${parsedData.classes.length} أفواج تربوية: تمت إضافة ${totalNewStudentsAdded} تلميذاً وتحديث ${totalExistingStudentsRetained} تلميذاً في النظام.`;
+        summaryNotificationMsg = `تم تجهيز ${parsedData.classes.length} أفواج تربوية للمزامنة: إضافة ${totalNewStudentsAdded} تلميذاً وتحديث ${totalExistingStudentsRetained} تلميذاً. سيظهر التأكيد بعد إقرار Supabase.`;
 
         // Update profile if schoolName or academicYear were detected
         const updatedProfile = { ...prev.profile };
@@ -835,7 +837,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
       setSelectedClassId(targetClassIdToSelect);
     }
     setImportNotification(
-      `تم استيراد ${classesToImport.length} أفواج بنجاح من برنامج الممتاز (${totalAdded} تلميذاً جديداً، و ${totalUpdated} تلميذ تم تحديث بياناتهم وحفظ القاعات).`
+      `تم تجهيز ${classesToImport.length} أفواج للمزامنة من برنامج الممتاز (${totalAdded} تلميذاً جديداً، و ${totalUpdated} تلميذ تم تحديث بياناتهم وحفظ القاعات). سيظهر التأكيد بعد إقرار Supabase.`
     );
     setIsMoumtazeModalOpen(false);
     setMoumtazeData(null);
@@ -1068,31 +1070,6 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
 
   return (
     <div className="space-y-6 w-full max-w-[30rem] md:max-w-7xl mx-auto px-3 sm:px-6 md:px-8 py-4 sm:py-6" id="classes-manager-view">
-
-        {/* Sub-tab Navigation */}
-        <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
-          <button
-            onClick={() => setActiveSubTab('classes')}
-            className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-              activeSubTab === 'classes' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900' }`}
-          >
-            الأقسام المسندة ({state.classes.length})
-          </button>
-          <button
-            onClick={() => setActiveSubTab('timetable')}
-            className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-              activeSubTab === 'timetable' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900' }`}
-          >
-            استعمال الزمن الأسبوعي
-          </button>
-          <button
-            onClick={() => setActiveSubTab('students')}
-            className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-              activeSubTab === 'students' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900' }`}
-          >
-            قوائم التلاميذ والرقمنة
-          </button>
-        </div>
 
       {/* Notification Toast */}
       {importNotification && (
@@ -1394,7 +1371,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
                       onClick={() => {
                         setSelectedClassId(cls.id);
                         onUpdateState(prev => ({ ...prev, activeClassId: cls.id }));
-                        setActiveSubTab('students');
+                        onNavigate?.('students');
                       }}
                       className="flex-1 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-colors cursor-pointer text-center" >
                       إدارة التلاميذ

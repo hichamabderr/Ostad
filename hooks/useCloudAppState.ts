@@ -156,6 +156,7 @@ export function useCloudAppState(user: User | null) {
   );
   const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus>(() => (user ? 'loading' : 'ready'));
   const [syncError, setSyncError] = useState<string | null>(null);
+  const cloudStatusRef = useRef<CloudSyncStatus>(cloudStatus);
   const [localStorageError, setLocalStorageError] = useState<string | null>(null);
   const cloudReady = !user || cloudStatus !== 'loading';
   const syncingRef = useRef(false);
@@ -164,6 +165,10 @@ export function useCloudAppState(user: User | null) {
   const latestStateRef = useRef(state);
   const revisionRef = useRef(0);
   const updatedAtRef = useRef(new Date(0).toISOString());
+
+  useEffect(() => {
+    cloudStatusRef.current = cloudStatus;
+  }, [cloudStatus]);
 
   useEffect(() => {
     latestStateRef.current = state;
@@ -394,9 +399,7 @@ export function useCloudAppState(user: User | null) {
     if (user && cloudStatus === 'ready') setCloudStatus('sync-pending');
     setState((previous) => {
       const next = updater(previous);
-      
       const deletedRecordIds = getDeletedRecordIds(previous, next);
-      
       if (deletedRecordIds.length > 0) {
         return {
           ...next,
@@ -406,12 +409,45 @@ export function useCloudAppState(user: User | null) {
           ])),
         };
       }
-      
       return {
         ...next,
-        deletedRecordIds: previous.deletedRecordIds || []
+        deletedRecordIds: previous.deletedRecordIds || [],
       };
     });
+  };
+
+  const waitForSyncConfirmation = async (): Promise<void> => {
+    if (!user) {
+      throw new Error('لا يمكن إعلان نجاح سحابي قبل تسجيل الدخول إلى Supabase.');
+    }
+    const currentStatus = cloudStatusRef.current;
+    if (currentStatus === 'sync-failed' || currentStatus === 'conflict') {
+      throw new Error('توجد عملية مزامنة فاشلة أو متعارضة. أعد المحاولة قبل حفظ تغيير جديد.');
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    const deadline = Date.now() + 30_000;
+    let observedPendingWork = false;
+    while (Date.now() < deadline) {
+      const pending = await listSyncOutbox(user.id);
+      const status = cloudStatusRef.current;
+      if (pending.length > 0 || status === 'sync-pending' || status === 'loading') {
+        observedPendingWork = true;
+      }
+      if (status === 'sync-failed' || status === 'conflict' || status === 'local-only') {
+        throw new Error(syncError || 'تعذر تأكيد الحفظ في Supabase.');
+      }
+      if (observedPendingWork && status === 'ready' && pending.length === 0) {
+        return;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+    }
+    throw new Error('انتهت مهلة تأكيد الحفظ في Supabase. بقيت العملية في طابور المزامنة.');
+  };
+
+  const updateStateAndWait = async (updater: (previous: AppState) => AppState): Promise<void> => {
+    handleUpdateState(updater);
+    await waitForSyncConfirmation();
   };
 
   const replaceStateFromBackup = async (nextState: AppState): Promise<void> => {
@@ -435,6 +471,7 @@ export function useCloudAppState(user: User | null) {
     latestStateRef.current = normalizedState;
     await saveAppStateCache(normalizedState);
     setLocalStorageError(null);
+    if (user) await waitForSyncConfirmation();
   };
 
   const clearRosterData = async (): Promise<void> => {
@@ -525,6 +562,7 @@ export function useCloudAppState(user: User | null) {
   return {
     state,
     handleUpdateState,
+    updateStateAndWait,
     replaceStateFromBackup,
     clearRosterData,
     resetWorkspace,

@@ -18,7 +18,9 @@ export async function commitRosterImportBatch(
 ): Promise<void> {
   if (classes.length === 0) return;
   const client = createSupabaseBrowserClient();
-  if (!client) return;
+  if (!client) {
+    throw new Error('تعذر الوصول إلى Supabase لتأكيد استيراد القوائم.');
+  }
   const { error } = await (client as unknown as {
     rpc: (name: 'import_roster_batch', args: {
       p_classes: RosterImportClass[];

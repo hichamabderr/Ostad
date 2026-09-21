@@ -26,6 +26,7 @@ import React from "react";
 export type SanadTab =
   | "dashboard"
   | "classes"
+  | "students"
   | "attendance"
   | "grades"
   | "council"
@@ -84,7 +85,8 @@ export const SidebarSanad: React.FC<SidebarSanadProps> = ({
     {
       groupName: "التقويم",
       items: [
-        { id: "classes", label: "الأقسام", icon: Users },
+        { id: "classes", label: "الأقسام المسندة", icon: Users },
+        { id: "students", label: "قوائم التلاميذ", icon: Users },
         { id: "attendance", label: "الحضور", icon: UserCheck },
         { id: "grades", label: "النقاط", icon: Star },
         { id: "council", label: "المجالس", icon: BarChart3 },

@@ -95,6 +95,7 @@ const GlobalSearchModal = dynamic(
 const TAB_ROUTES: Record<SanadTab, string> = {
   dashboard: "/dashboard",
   classes: "/classes",
+  students: "/students",
   attendance: "/attendance",
   grades: "/grades",
   council: "/council",
@@ -125,6 +126,7 @@ function AppContent({
   const {
     state,
     handleUpdateState,
+    updateStateAndWait,
     replaceStateFromBackup,
     clearRosterData,
     resetWorkspace,
@@ -217,6 +219,7 @@ function AppContent({
     <AppStateProvider value={{
       state,
       updateState: handleUpdateState,
+      updateStateAndWait,
       replaceStateFromBackup,
       clearRosterData,
       resetWorkspace,
@@ -274,6 +277,14 @@ function AppContent({
           {currentTab === "classes" && (
             <ClassesManager
               onNavigate={setCurrentTab}
+              initialSubTab="classes"
+            />
+          )}
+
+          {currentTab === "students" && (
+            <ClassesManager
+              onNavigate={setCurrentTab}
+              initialSubTab="students"
             />
           )}
 

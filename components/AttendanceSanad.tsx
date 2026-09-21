@@ -40,7 +40,7 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
   onNavigateToTimetable,
   onNavigateToSessions
 }) => {
-  const { state, updateState: onUpdateState } = useAppState();
+  const { state, updateState: onUpdateState, updateStateAndWait } = useAppState();
   const [selectedClassId, setSelectedClassId] = useState<string>(
     state.activeClassId || (state.classes[0]?.id || '')
   );
@@ -274,12 +274,18 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
     }
 
     if (newSessions.length > 0) {
-      onUpdateState(prev => ({
+      void updateStateAndWait(prev => ({
         ...prev,
         sessions: [...newSessions, ...prev.sessions]
-      }));
-      setSelectedSessionId(newSessions[0].id);
-      showToast(`تم بنجاح توليد ${newSessions.length} حصة للفصل ${state.activeTrimester} بناءً على جدول التوقيت!`, 'success');
+      }))
+        .then(() => {
+          setSelectedSessionId(newSessions[0].id);
+          showToast(`تم تأكيد توليد ${newSessions.length} حصة في Supabase للفصل ${state.activeTrimester}.`, 'success');
+        })
+        .catch((error: unknown) => {
+          console.error('Generated sessions sync failed:', error);
+          showToast(error instanceof Error ? error.message : 'تعذر تأكيد الحصص في Supabase.', 'error');
+        });
     } else {
       showToast('جميع حصص هذا الفصل مولدة مسبقاً.', 'warning');
     }

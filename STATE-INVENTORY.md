@@ -26,6 +26,12 @@ Supabase.
 `useCloudAppState` ثم cache/outbox وSupabase/Realtime نفسها. الحالة المؤقتة
 للنوافذ والتنقل تبقى محلية للمكونات، ولا تدخل السياق.
 
+`updateStateAndWait` هو مسار الحفظ الذي يسمح بإعلان النجاح: يطبق التغيير، ينتظر
+إدخاله في outbox، ثم ينتظر تفريغ الطابور بنجاح قبل الإرجاع. عند الفشل أو التعارض
+أو انتهاء المهلة يُرفض الوعد ولا يجوز للمكوّن عرض رسالة نجاح؛ تبقى العملية في
+الطابور لإعادة المحاولة. لذلك لا تعني كتابة IndexedDB أو ظهور التغيير محلياً أن
+الحفظ السحابي اكتمل.
+
 ## كيانات الأعمال القابلة للتعديل
 
 | الحالة | جدول/خدمة Supabase | الحذف/التعارض |
@@ -34,10 +40,17 @@ Supabase.
 | `calendarSettings`, `theme`, `dashboardStyle`, `sidebarCollapsed`, `onboardingDismissed`, `activeClassId`, `activeTrimester` | `app_settings` | revision وconflict؛ trigger خادمي موحد |
 | `classes` | `classes` | tombstone |
 | `students` | `students` | tombstone؛ الاستيراد الجماعي يمر عبر `import_roster_batch` مع outbox كضمان لاحق |
-| `timetable` | `timetable_slots` | tombstone |
+| `timetable` | `timetable_slots` | tombstone؛ تغيير القسم النشط يغيّر العرض/الاختيار فقط ولا يحذف أو يعيد كتابة صفوف التوقيت |
 | `sessions` | `sessions` | tombstone؛ يرتبط بالحضور والسلوك |
 | `attendance` | `attendance` | tombstone علائقي مستقل |
 | `session behaviors` | `session_behaviors` | tombstone علائقي مستقل |
+
+### حدود التنقل
+
+مسار `/classes` يعرض الأقسام المسندة فقط، ومسار `/students` يملك واجهة
+قوائم التلاميذ والاستيراد. أما استعمال الزمن الأسبوعي فمملوك لمسار `/timetable`
+وواجهة جدول التوقيت الموحدة؛ لا توجد نسخة ثانية من الجدول في القائمة الجانبية.
+تغيير المسار أو `activeClassId` لا يغيّر مصدر الحقيقة ولا يحذف بيانات أي قسم.
 | `grades` | `grades` | revision؛ الحسابات المشتقة لا تصبح مصدراً ثانياً |
 | `lessonProgress` | `lesson_progress` | tombstone |
 | `customUnits` | `custom_units` | tombstone |

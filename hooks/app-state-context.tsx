@@ -4,10 +4,12 @@ import { createContext, useContext, type ReactNode } from 'react';
 import type { AppState } from '@/lib/storage';
 
 export type AppStateUpdater = (updater: (previous: AppState) => AppState) => void;
+export type AppStateSyncUpdater = (updater: (previous: AppState) => AppState) => Promise<void>;
 
 export interface AppStateContextValue {
   state: AppState;
   updateState: AppStateUpdater;
+  updateStateAndWait: AppStateSyncUpdater;
   replaceStateFromBackup: (state: AppState) => Promise<void>;
   clearRosterData: () => Promise<void>;
   resetWorkspace: () => Promise<void>;

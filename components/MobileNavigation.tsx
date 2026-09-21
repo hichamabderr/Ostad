@@ -20,7 +20,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { tab: 'dashboard', label: 'الرئيسية', icon: Home },
-  { tab: 'classes', label: 'الأقسام', icon: Users },
+  { tab: 'classes', label: 'الأقسام المسندة', icon: Users },
   { tab: 'grades', label: 'النقاط', icon: ClipboardList },
   { tab: 'prep', label: 'الدروس', icon: BookOpen },
   { tab: 'timetable', label: 'الجدول', icon: Calendar },

@@ -9,6 +9,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { AppState } from'@/lib/storage';
 import { TimetableSlot, ClassRoom } from'@/lib/types';
 import { getWeeklyHours } from '@/lib/curriculum-data';
+import { selectActiveClassId } from '@/lib/state-selectors';
 import {
  CalendarDays,
  Plus,
@@ -63,8 +64,17 @@ export const TimetableSanad: React.FC<TimetableSanadProps> = () => {
  const [selectedStartTime, setSelectedStartTime] = useState('08:00');
  const [selectedEndTime, setSelectedEndTime] = useState('09:00');
  const [selectedClassId, setSelectedClassId] = useState<string>(
- state.classes[0]?.id ||'' );
+ selectActiveClassId(state) ||'' );
  const [selectedRoom, setSelectedRoom] = useState('القاعة 01');
+
+ React.useEffect(() => {
+   const activeClassId = selectActiveClassId(state);
+   if (activeClassId && !state.classes.some(cls => cls.id === selectedClassId)) {
+     const timer = window.setTimeout(() => setSelectedClassId(activeClassId), 0);
+     return () => window.clearTimeout(timer);
+   }
+   return undefined;
+ }, [selectedClassId, state]);
 
  // Total weekly teaching hours
  const totalTeachingHours = state.timetable.length;
@@ -87,7 +97,7 @@ export const TimetableSanad: React.FC<TimetableSanadProps> = () => {
  const foundHour = ALL_HOURS.find(h => h.start === startHour);
  setSelectedEndTime(foundHour ? foundHour.end :'09:00');
  }
- const defaultCls = state.classes[0];
+ const defaultCls = state.classes.find(cls => cls.id === selectActiveClassId(state));
  if (defaultCls) {
  setSelectedClassId(defaultCls.id);
  setSelectedRoom(defaultCls.roomNumber ||'القاعة 01');
