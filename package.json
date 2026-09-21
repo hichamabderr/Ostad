@@ -1,6 +1,7 @@
 {
-  "name": "ai-studio-applet",
+  "name": "mueen-al-ostad",
   "version": "0.1.0",
+  "description": "An application for managing the workflow of a teacher in the field of Islamic studies",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack -p 3000",
