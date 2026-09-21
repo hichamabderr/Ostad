@@ -9,6 +9,7 @@ export interface AppStateContextValue {
   state: AppState;
   updateState: AppStateUpdater;
   replaceStateFromBackup: (state: AppState) => Promise<void>;
+  clearRosterData: () => Promise<void>;
   resetWorkspace: () => Promise<void>;
 }
 

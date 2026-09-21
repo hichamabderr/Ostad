@@ -126,6 +126,7 @@ function AppContent({
     state,
     handleUpdateState,
     replaceStateFromBackup,
+    clearRosterData,
     resetWorkspace,
     isMounted,
     cloudReady,
@@ -217,6 +218,7 @@ function AppContent({
       state,
       updateState: handleUpdateState,
       replaceStateFromBackup,
+      clearRosterData,
       resetWorkspace,
     }}>
     <div

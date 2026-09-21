@@ -33,7 +33,12 @@ interface SettingsSanadProps {
 }
 
 export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
-  const { state, updateState: onUpdateState, replaceStateFromBackup } = useAppState();
+  const {
+    state,
+    updateState: onUpdateState,
+    replaceStateFromBackup,
+    clearRosterData,
+  } = useAppState();
   const [calendarSettings, setCalendarSettings] =
     useState<AcademicCalendarSettings>(
       state.calendarSettings || DEFAULT_CALENDAR_SETTINGS,
@@ -67,19 +72,17 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
     setShowResetConfirm(true);
   };
 
-  const confirmClearClassesData = () => {
-    onUpdateState((prev) => ({
-      ...prev,
-      classes: [],
-      students: [],
-      sessions: [],
-      grades: [],
-      lessonProgress: [],
-      activeClassId: null,
-    }));
-    setShowResetConfirm(false);
-    setShowSuccessMsg("تمت إعادة تعيين الأقسام والتلاميذ بنجاح.");
-    setTimeout(() => setShowSuccessMsg(""), 3000);
+  const confirmClearClassesData = async () => {
+    try {
+      await clearRosterData();
+      setShowResetConfirm(false);
+      setShowSuccessMsg("تمت إعادة تعيين الأقسام والتلاميذ ومزامنتها بنجاح.");
+      setTimeout(() => setShowSuccessMsg(""), 3000);
+    } catch (error) {
+      console.error("Roster reset failed:", error);
+      setShowResetConfirm(false);
+      showToast("تعذر تأكيد إعادة التعيين في السحابة. بقيت العملية في طابور المزامنة.", "error");
+    }
   };
 
   const handleResetHolidays = () => {

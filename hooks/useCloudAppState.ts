@@ -437,6 +437,67 @@ export function useCloudAppState(user: User | null) {
     setLocalStorageError(null);
   };
 
+  const clearRosterData = async (): Promise<void> => {
+    saveGenerationRef.current += 1;
+    if (pendingSaveTimerRef.current !== null && pendingSaveTimerRef.current !== -1) {
+      window.clearTimeout(pendingSaveTimerRef.current);
+      pendingSaveTimerRef.current = null;
+    }
+
+    const previousState = latestStateRef.current;
+    const nextState: AppState = {
+      ...previousState,
+      classes: [],
+      students: [],
+      sessions: [],
+      grades: [],
+      lessonProgress: [],
+      activeClassId: null,
+      deletedRecordIds: Array.from(new Set([
+        ...(previousState.deletedRecordIds || []),
+        ...getDeletedRecordIds(previousState, {
+          ...previousState,
+          classes: [],
+          students: [],
+          sessions: [],
+          grades: [],
+          lessonProgress: [],
+          activeClassId: null,
+        }),
+      ])),
+    };
+
+    setState(nextState);
+    latestStateRef.current = nextState;
+    await saveAppStateCache(nextState);
+
+    if (!user) return;
+    const client = createSupabaseBrowserClient();
+    if (!client) throw new Error('لا يمكن مزامنة إعادة التعيين دون اتصال Supabase.');
+
+    setCloudStatus('sync-pending');
+    revisionRef.current += 1;
+    const revision = revisionRef.current;
+    const updatedAt = new Date().toISOString();
+    const entryId = await enqueueSyncState(user.id, nextState, revision, updatedAt);
+    const flushed = await flushSyncOutbox(client, user.id, syncingRef, (error) => {
+      const message = describeCloudError(error).message;
+      setSyncError(message);
+      setCloudStatus(error instanceof Error && error.name === 'SyncConflictError' ? 'conflict' : 'sync-failed');
+    });
+    if (!flushed || (await listSyncOutbox(user.id)).length > 0) {
+      throw new Error('تعذر تأكيد حذف الأقسام والتلاميذ في Supabase.');
+    }
+
+    await removeSyncOutboxEntry(entryId);
+    setSyncError(null);
+    setCloudStatus('ready');
+    setState((current) => ({
+      ...current,
+      deletedRecordIds: current.deletedRecordIds?.filter((id) => !nextState.deletedRecordIds?.includes(id)) || [],
+    }));
+  };
+
   const resetWorkspace = async (): Promise<void> => {
     saveGenerationRef.current += 1;
     if (pendingSaveTimerRef.current !== null && pendingSaveTimerRef.current !== -1) {
@@ -465,6 +526,7 @@ export function useCloudAppState(user: User | null) {
     state,
     handleUpdateState,
     replaceStateFromBackup,
+    clearRosterData,
     resetWorkspace,
     isMounted,
     cloudReady,
