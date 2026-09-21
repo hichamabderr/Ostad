@@ -517,58 +517,60 @@ export const DocumentsExport: React.FC<DocumentsExportProps> = () => {
         {/* --------------------------------------------- */}
         {docType === 'JOURNAL' && (
           <div className="space-y-3">
-            <table className="w-full text-right border-collapse border border-slate-900 text-xs">
-              <thead className="bg-slate-100 border-b border-slate-900 font-bold">
-                <tr>
-                  <th className="border border-slate-900 p-1.5 text-center w-24">التاريخ والتوقيت</th>
-                  <th className="border border-slate-900 p-1.5 w-44">موضوع الدرس / الوحدة</th>
-                  <th className="border border-slate-900 p-1.5">ما تم إنجازه في الحصة</th>
-                  <th className="border border-slate-900 p-1.5 w-32">التوجيهات والواجبات</th>
-                  <th className="border border-slate-900 p-1.5 w-40">دفتر الملاحظات</th>
-                  <th className="border border-slate-900 p-1.5 text-center w-12">الغياب</th>
-                </tr>
-              </thead>
-              <tbody>
-                {classPastSessions.length === 0 ? (
+            <div className="overflow-x-auto scrollbar-thin w-full print:overflow-visible">
+              <table className="w-full min-w-[640px] sm:min-w-0 text-right border-collapse border border-slate-900 text-xs">
+                <thead className="bg-slate-100 border-b border-slate-900 font-bold">
                   <tr>
-                    <td colSpan={6} className="border border-slate-900 p-6 text-center text-slate-400">
-                      لا توجد حصص مسجلة بعد لهذا القسم في الدفتر اليومي.
-                    </td>
+                    <th className="border border-slate-900 p-1.5 text-center w-24">التاريخ والتوقيت</th>
+                    <th className="border border-slate-900 p-1.5 w-44">موضوع الدرس / الوحدة</th>
+                    <th className="border border-slate-900 p-1.5">ما تم إنجازه في الحصة</th>
+                    <th className="border border-slate-900 p-1.5 w-32">التوجيهات والواجبات</th>
+                    <th className="border border-slate-900 p-1.5 w-40">دفتر الملاحظات</th>
+                    <th className="border border-slate-900 p-1.5 text-center w-12">الغياب</th>
                   </tr>
-                ) : (
-                  classPastSessions.map(ses => {
-                    const allCurriculumUnits = getMergedCurriculumUnits(state.customUnits);
-                    const unit = allCurriculumUnits.find(u => u.id === ses.unitId);
-                    const absents = Object.values(ses.attendance || {}).filter(
-                      st => st === 'ABSENT' || st === 'EXCUSED' ).length;
+                </thead>
+                <tbody>
+                  {classPastSessions.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="border border-slate-900 p-6 text-center text-slate-400">
+                        لا توجد حصص مسجلة بعد لهذا القسم في الدفتر اليومي.
+                      </td>
+                    </tr>
+                  ) : (
+                    classPastSessions.map(ses => {
+                      const allCurriculumUnits = getMergedCurriculumUnits(state.customUnits);
+                      const unit = allCurriculumUnits.find(u => u.id === ses.unitId);
+                      const absents = Object.values(ses.attendance || {}).filter(
+                        st => st === 'ABSENT' || st === 'EXCUSED' ).length;
 
-                    return (
-                      <tr key={ses.id} className="break-inside-avoid">
-                        <td className={`border border-slate-900 text-center font-mono ${ecoPaperMode ? 'p-1 text-[10px]' : 'p-1.5 text-[11px]'}`}>
-                          <div className="font-bold">{ses.date}</div>
-                          <div className="text-[9px] text-slate-600">{ses.startTime} – {ses.endTime}</div>
-                        </td>
-                        <td className={`border border-slate-900 font-bold ${ecoPaperMode ? 'p-1 text-[10px]' : 'p-1.5 text-xs'}`}>
-                          {unit ? unit.title : ses.customTopic || 'حصة عادية'}
-                        </td>
-                        <td className={`border border-slate-900 ${ecoPaperMode ? 'p-1 text-[10px] leading-tight' : 'p-1.5 text-xs'}`}>
-                          {ses.accomplishments || '-'}
-                        </td>
-                        <td className={`border border-slate-900 ${ecoPaperMode ? 'p-1 text-[10px] leading-tight' : 'p-1.5 text-xs'}`}>
-                          {ses.nextSteps || '-'}
-                        </td>
-                        <td className={`border border-slate-900 whitespace-pre-line ${ecoPaperMode ? 'p-1 text-[10px] leading-tight' : 'p-1.5 text-xs'}`}>
-                          {getSessionNotes(ses) || '-'}
-                        </td>
-                        <td className={`border border-slate-900 text-center font-bold ${ecoPaperMode ? 'p-1 text-[10px]' : 'p-1.5'}`}>
-                          {absents > 0 ? absents : '0'}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+                      return (
+                        <tr key={ses.id} className="break-inside-avoid">
+                          <td className={`border border-slate-900 text-center font-mono ${ecoPaperMode ? 'p-1 text-[10px]' : 'p-1.5 text-[11px]'}`}>
+                            <div className="font-bold">{ses.date}</div>
+                            <div className="text-[9px] text-slate-600">{ses.startTime} – {ses.endTime}</div>
+                          </td>
+                          <td className={`border border-slate-900 font-bold ${ecoPaperMode ? 'p-1 text-[10px]' : 'p-1.5 text-xs'}`}>
+                            {unit ? unit.title : ses.customTopic || 'حصة عادية'}
+                          </td>
+                          <td className={`border border-slate-900 ${ecoPaperMode ? 'p-1 text-[10px] leading-tight' : 'p-1.5 text-xs'}`}>
+                            {ses.accomplishments || '-'}
+                          </td>
+                          <td className={`border border-slate-900 ${ecoPaperMode ? 'p-1 text-[10px] leading-tight' : 'p-1.5 text-xs'}`}>
+                            {ses.nextSteps || '-'}
+                          </td>
+                          <td className={`border border-slate-900 whitespace-pre-line ${ecoPaperMode ? 'p-1 text-[10px] leading-tight' : 'p-1.5 text-xs'}`}>
+                            {getSessionNotes(ses) || '-'}
+                          </td>
+                          <td className={`border border-slate-900 text-center font-bold ${ecoPaperMode ? 'p-1 text-[10px]' : 'p-1.5'}`}>
+                            {absents > 0 ? absents : '0'}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -577,49 +579,51 @@ export const DocumentsExport: React.FC<DocumentsExportProps> = () => {
         {/* --------------------------------------------- */}
         {docType === 'CURRICULUM_DISTRIBUTION' && (
           <div className="space-y-3">
-            <table className="w-full text-right border-collapse border border-slate-900 text-xs">
-              <thead className="bg-slate-100 border-b border-slate-900 font-bold">
-                <tr>
-                  <th className="border border-slate-900 p-1.5 text-center w-10">الرقم</th>
-                  <th className="border border-slate-900 p-1.5 w-28">الميدان</th>
-                  <th className="border border-slate-900 p-1.5 w-44">الوحدة التعليمية / العنوان</th>
-                  <th className="border border-slate-900 p-1.5">الكفاءة المستهدفة</th>
-                  <th className="border border-slate-900 p-1.5 text-center w-14">الحجم</th>
-                  <th className="border border-slate-900 p-1.5 text-center w-20">الإنجاز</th>
-                </tr>
-              </thead>
-              <tbody>
-                {classUnits.map((unit, idx) => {
-                  const prog = state.lessonProgress.find(
-                    p => p.classId === selectedClassId && p.unitId === unit.id
-                  );
-                  const isDone = prog?.status === 'COMPLETED';
+            <div className="overflow-x-auto scrollbar-thin w-full print:overflow-visible">
+              <table className="w-full min-w-[620px] sm:min-w-0 text-right border-collapse border border-slate-900 text-xs">
+                <thead className="bg-slate-100 border-b border-slate-900 font-bold">
+                  <tr>
+                    <th className="border border-slate-900 p-1.5 text-center w-10">الرقم</th>
+                    <th className="border border-slate-900 p-1.5 w-28">الميدان</th>
+                    <th className="border border-slate-900 p-1.5 w-44">الوحدة التعليمية / العنوان</th>
+                    <th className="border border-slate-900 p-1.5">الكفاءة المستهدفة</th>
+                    <th className="border border-slate-900 p-1.5 text-center w-14">الحجم</th>
+                    <th className="border border-slate-900 p-1.5 text-center w-20">الإنجاز</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {classUnits.map((unit, idx) => {
+                    const prog = state.lessonProgress.find(
+                      p => p.classId === selectedClassId && p.unitId === unit.id
+                    );
+                    const isDone = prog?.status === 'COMPLETED';
 
-                  return (
-                    <tr key={unit.id} className="break-inside-avoid">
-                      <td className={`border border-slate-900 text-center font-mono font-bold ${ecoPaperMode ? 'p-1 text-[10px]' : 'p-1.5'}`}>
-                        {String(unit.unitNumber || idx + 1).padStart(2, '0')}
-                      </td>
-                      <td className={`border border-slate-900 font-medium text-emerald-950 ${ecoPaperMode ? 'p-1 text-[10px]' : 'p-1.5 text-[11px]'}`}>
-                        {unit.domain}
-                      </td>
-                      <td className={`border border-slate-900 font-bold ${ecoPaperMode ? 'p-1 text-[10px]' : 'p-1.5 text-xs'}`}>
-                        {unit.title}
-                      </td>
-                      <td className={`border border-slate-900 ${ecoPaperMode ? 'p-1 text-[10px] leading-tight' : 'p-1.5 text-xs'}`}>
-                        {unit.targetedCompetence || '-'}
-                      </td>
-                      <td className={`border border-slate-900 text-center font-mono ${ecoPaperMode ? 'p-1 text-[10px]' : 'p-1.5'}`}>
-                        {unit.hourlyVolume || 2} سا
-                      </td>
-                      <td className={`border border-slate-900 text-center font-bold ${ecoPaperMode ? 'p-1 text-[10px]' : 'p-1.5 text-[11px]'}`}>
-                        {isDone ? 'أُنجز' : 'مخطط'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                    return (
+                      <tr key={unit.id} className="break-inside-avoid">
+                        <td className={`border border-slate-900 text-center font-mono font-bold ${ecoPaperMode ? 'p-1 text-[10px]' : 'p-1.5'}`}>
+                          {String(unit.unitNumber || idx + 1).padStart(2, '0')}
+                        </td>
+                        <td className={`border border-slate-900 font-medium text-emerald-950 ${ecoPaperMode ? 'p-1 text-[10px]' : 'p-1.5 text-[11px]'}`}>
+                          {unit.domain}
+                        </td>
+                        <td className={`border border-slate-900 font-bold ${ecoPaperMode ? 'p-1 text-[10px]' : 'p-1.5 text-xs'}`}>
+                          {unit.title}
+                        </td>
+                        <td className={`border border-slate-900 ${ecoPaperMode ? 'p-1 text-[10px] leading-tight' : 'p-1.5 text-xs'}`}>
+                          {unit.targetedCompetence || '-'}
+                        </td>
+                        <td className={`border border-slate-900 text-center font-mono ${ecoPaperMode ? 'p-1 text-[10px]' : 'p-1.5'}`}>
+                          {unit.hourlyVolume || 2} سا
+                        </td>
+                        <td className={`border border-slate-900 text-center font-bold ${ecoPaperMode ? 'p-1 text-[10px]' : 'p-1.5 text-[11px]'}`}>
+                          {isDone ? 'أُنجز' : 'مخطط'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -628,68 +632,70 @@ export const DocumentsExport: React.FC<DocumentsExportProps> = () => {
         {/* --------------------------------------------- */}
         {docType === 'GRADES_ROSTER' && (
           <div className="space-y-3">
-            <table className="w-full text-right border-collapse border border-slate-900 text-xs">
-              <thead className="bg-slate-100 border-b border-slate-900 font-bold">
-                <tr>
-                  <th className="border border-slate-900 p-1 text-center w-8">#</th>
-                  <th className="border border-slate-900 p-1 min-w-[140px]">اسم ولقب التلميذ</th>
-                  <th className="border border-slate-900 p-1 text-center w-16">التقويم (20)</th>
-                  <th className="border border-slate-900 p-1 text-center w-16">الفرض (20)</th>
-                  <th className="border border-slate-900 p-1 text-center w-16">الاختبار (×2)</th>
-                  <th className="border border-slate-900 p-1 text-center w-16">المعدل</th>
-                  <th className="border border-slate-900 p-1 text-center w-20">التقديرات</th>
-                  <th className="border border-slate-900 p-1 min-w-[110px]">الإرشادات</th>
-                </tr>
-              </thead>
-              <tbody>
-                {classStudents.map(student => {
-                  const g = state.grades.find(
-                    x => x.studentId === student.id && x.trimester === selectedTrimester
-                  );
-                  const avg =
-                    g?.calculatedAverage ??
-                    calculateStudentAverage(
-                      g?.continuousEval ?? null,
-                      g?.quiz ?? null,
-                      g?.exam ?? null
+            <div className="overflow-x-auto scrollbar-thin w-full print:overflow-visible">
+              <table className="w-full min-w-[680px] sm:min-w-0 text-right border-collapse border border-slate-900 text-xs">
+                <thead className="bg-slate-100 border-b border-slate-900 font-bold">
+                  <tr>
+                    <th className="border border-slate-900 p-1 text-center w-8">#</th>
+                    <th className="border border-slate-900 p-1 min-w-[140px]">اسم ولقب التلميذ</th>
+                    <th className="border border-slate-900 p-1 text-center w-16">التقويم (20)</th>
+                    <th className="border border-slate-900 p-1 text-center w-16">الفرض (20)</th>
+                    <th className="border border-slate-900 p-1 text-center w-16">الاختبار (×2)</th>
+                    <th className="border border-slate-900 p-1 text-center w-16">المعدل</th>
+                    <th className="border border-slate-900 p-1 text-center w-20">التقديرات</th>
+                    <th className="border border-slate-900 p-1 min-w-[110px]">الإرشادات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {classStudents.map(student => {
+                    const g = state.grades.find(
+                      x => x.studentId === student.id && x.trimester === selectedTrimester
                     );
+                    const avg =
+                      g?.calculatedAverage ??
+                      calculateStudentAverage(
+                        g?.continuousEval ?? null,
+                        g?.quiz ?? null,
+                        g?.exam ?? null
+                      );
 
-                  const defaultEstimation = getDefaultEstimation(avg);
+                    const defaultEstimation = getDefaultEstimation(avg);
 
-                  return (
-                    <tr key={student.id} className="break-inside-avoid">
-                      <td className={`border border-slate-900 text-center font-mono font-bold ${ecoPaperMode ? 'py-0.5 px-1 text-[10px]' : 'p-1'}`}>
-                        {student.numberInList}
-                      </td>
-                      <td className={`border border-slate-900 font-bold ${ecoPaperMode ? 'py-0.5 px-1 text-[10px]' : 'p-1'}`}>
-                        {student.fullName}
-                      </td>
-                      <td className={`border border-slate-900 text-center font-mono ${ecoPaperMode ? 'py-0.5 px-1 text-[10px]' : 'p-1'}`}>
-                        {g?.continuousEval ?? '-'}
-                      </td>
-                      <td className={`border border-slate-900 text-center font-mono ${ecoPaperMode ? 'py-0.5 px-1 text-[10px]' : 'p-1'}`}>
-                        {g?.quiz ?? '-'}
-                      </td>
-                      <td className={`border border-slate-900 text-center font-mono ${ecoPaperMode ? 'py-0.5 px-1 text-[10px]' : 'p-1'}`}>
-                        {g?.exam ?? '-'}
-                      </td>
-                      <td className={`border border-slate-900 text-center font-mono font-bold ${ecoPaperMode ? 'py-0.5 px-1 text-[10px]' : 'p-1'}`}>
-                        {avg !== null ? avg.toFixed(2) : '-'}
-                      </td>
-                      <td className={`border border-slate-900 text-center font-semibold ${ecoPaperMode ? 'py-0.5 px-1 text-[9px]' : 'p-1 text-[10px]'}`}>
-                        {(() => {
-                          const est = g?.estimation || defaultEstimation;
-                          return (est === 'غير مقوم' || est === 'غير مقوّم' || est === '-') ? '' : est;
-                        })()}
-                      </td>
-                      <td className={`border border-slate-900 ${ecoPaperMode ? 'py-0.5 px-1 text-[9px]' : 'p-1 text-[10px]'}`}>
-                        {g?.remarks || g?.guidance || '-'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                    return (
+                      <tr key={student.id} className="break-inside-avoid">
+                        <td className={`border border-slate-900 text-center font-mono font-bold ${ecoPaperMode ? 'py-0.5 px-1 text-[10px]' : 'p-1'}`}>
+                          {student.numberInList}
+                        </td>
+                        <td className={`border border-slate-900 font-bold ${ecoPaperMode ? 'py-0.5 px-1 text-[10px]' : 'p-1'}`}>
+                          {student.fullName}
+                        </td>
+                        <td className={`border border-slate-900 text-center font-mono ${ecoPaperMode ? 'py-0.5 px-1 text-[10px]' : 'p-1'}`}>
+                          {g?.continuousEval ?? '-'}
+                        </td>
+                        <td className={`border border-slate-900 text-center font-mono ${ecoPaperMode ? 'py-0.5 px-1 text-[10px]' : 'p-1'}`}>
+                          {g?.quiz ?? '-'}
+                        </td>
+                        <td className={`border border-slate-900 text-center font-mono ${ecoPaperMode ? 'py-0.5 px-1 text-[10px]' : 'p-1'}`}>
+                          {g?.exam ?? '-'}
+                        </td>
+                        <td className={`border border-slate-900 text-center font-mono font-bold ${ecoPaperMode ? 'py-0.5 px-1 text-[10px]' : 'p-1'}`}>
+                          {avg !== null ? avg.toFixed(2) : '-'}
+                        </td>
+                        <td className={`border border-slate-900 text-center font-semibold ${ecoPaperMode ? 'py-0.5 px-1 text-[9px]' : 'p-1 text-[10px]'}`}>
+                          {(() => {
+                            const est = g?.estimation || defaultEstimation;
+                            return (est === 'غير مقوم' || est === 'غير مقوّم' || est === '-') ? '' : est;
+                          })()}
+                        </td>
+                        <td className={`border border-slate-900 ${ecoPaperMode ? 'py-0.5 px-1 text-[9px]' : 'p-1 text-[10px]'}`}>
+                          {g?.remarks || g?.guidance || '-'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -699,7 +705,7 @@ export const DocumentsExport: React.FC<DocumentsExportProps> = () => {
         {docType === 'COUNCIL_FORM' && (
           <div className="space-y-3">
             {/* Stats Summary Grid */}
-            <div className="grid grid-cols-3 gap-2 border border-slate-900 p-2 text-xs font-bold bg-slate-50">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 border border-slate-900 p-2 text-xs font-bold bg-slate-50">
               <div>تعداد القسم الكلي: <span className="font-mono">{stats.totalStudents}</span></div>
               <div>المقوّمون فعلياً: <span className="font-mono">{stats.evaluatedCount}</span></div>
               <div>الحاصلون على المعدل: <span className="font-mono text-[var(--primary)]">{stats.passCount}</span></div>
@@ -709,59 +715,61 @@ export const DocumentsExport: React.FC<DocumentsExportProps> = () => {
             </div>
 
             {/* Official Ministerial Categories Breakdown */}
-            <table className="w-full text-right border-collapse border border-slate-900 text-xs">
-              <thead className="bg-slate-100 border-b border-slate-900 font-bold">
-                <tr>
-                  <th className="border border-slate-900 p-1.5">الفئة الوزارية</th>
-                  <th className="border border-slate-900 p-1.5 text-center w-24">العدد</th>
-                  <th className="border border-slate-900 p-1.5 text-center w-24">النسبة %</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td className="border border-slate-900 p-1">أقل من 08 (ضعيف جداً)</td>
-                  <td className="border border-slate-900 p-1 text-center font-mono">{stats.lessThan8}</td>
-                  <td className="border border-slate-900 p-1 text-center font-mono">
-                    {stats.evaluatedCount > 0 ? ((stats.lessThan8 / stats.evaluatedCount) * 100).toFixed(1) : 0}%
-                  </td>
-                </tr>
-                <tr>
-                  <td className="border border-slate-900 p-1">ما بين 08 و 09.99 (دون المتوسط)</td>
-                  <td className="border border-slate-900 p-1 text-center font-mono">{stats.between8and10}</td>
-                  <td className="border border-slate-900 p-1 text-center font-mono">
-                    {stats.evaluatedCount > 0 ? ((stats.between8and10 / stats.evaluatedCount) * 100).toFixed(1) : 0}%
-                  </td>
-                </tr>
-                <tr>
-                  <td className="border border-slate-900 p-1">ما بين 10 و 11.99 (مقبول / متوسط)</td>
-                  <td className="border border-slate-900 p-1 text-center font-mono">{stats.between10and12}</td>
-                  <td className="border border-slate-900 p-1 text-center font-mono">
-                    {stats.evaluatedCount > 0 ? ((stats.between10and12 / stats.evaluatedCount) * 100).toFixed(1) : 0}%
-                  </td>
-                </tr>
-                <tr>
-                  <td className="border border-slate-900 p-1">ما بين 12 و 13.99 (جيد)</td>
-                  <td className="border border-slate-900 p-1 text-center font-mono">{stats.between12and14}</td>
-                  <td className="border border-slate-900 p-1 text-center font-mono">
-                    {stats.evaluatedCount > 0 ? ((stats.between12and14 / stats.evaluatedCount) * 100).toFixed(1) : 0}%
-                  </td>
-                </tr>
-                <tr>
-                  <td className="border border-slate-900 p-1">ما بين 14 و 15.99 (جيد جداً)</td>
-                  <td className="border border-slate-900 p-1 text-center font-mono">{stats.between14and16}</td>
-                  <td className="border border-slate-900 p-1 text-center font-mono">
-                    {stats.evaluatedCount > 0 ? ((stats.between14and16 / stats.evaluatedCount) * 100).toFixed(1) : 0}%
-                  </td>
-                </tr>
-                <tr>
-                  <td className="border border-slate-900 p-1 font-bold">أكبر من 16 (ممتاز)</td>
-                  <td className="border border-slate-900 p-1 text-center font-mono font-bold">{stats.greaterThan16}</td>
-                  <td className="border border-slate-900 p-1 text-center font-mono font-bold">
-                    {stats.evaluatedCount > 0 ? ((stats.greaterThan16 / stats.evaluatedCount) * 100).toFixed(1) : 0}%
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <div className="overflow-x-auto scrollbar-thin w-full print:overflow-visible">
+              <table className="w-full min-w-[380px] sm:min-w-0 text-right border-collapse border border-slate-900 text-xs">
+                <thead className="bg-slate-100 border-b border-slate-900 font-bold">
+                  <tr>
+                    <th className="border border-slate-900 p-1.5">الفئة الوزارية</th>
+                    <th className="border border-slate-900 p-1.5 text-center w-24">العدد</th>
+                    <th className="border border-slate-900 p-1.5 text-center w-24">النسبة %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="border border-slate-900 p-1">أقل من 08 (ضعيف جداً)</td>
+                    <td className="border border-slate-900 p-1 text-center font-mono">{stats.lessThan8}</td>
+                    <td className="border border-slate-900 p-1 text-center font-mono">
+                      {stats.evaluatedCount > 0 ? ((stats.lessThan8 / stats.evaluatedCount) * 100).toFixed(1) : 0}%
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="border border-slate-900 p-1">ما بين 08 و 09.99 (دون المتوسط)</td>
+                    <td className="border border-slate-900 p-1 text-center font-mono">{stats.between8and10}</td>
+                    <td className="border border-slate-900 p-1 text-center font-mono">
+                      {stats.evaluatedCount > 0 ? ((stats.between8and10 / stats.evaluatedCount) * 100).toFixed(1) : 0}%
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="border border-slate-900 p-1">ما بين 10 و 11.99 (مقبول / متوسط)</td>
+                    <td className="border border-slate-900 p-1 text-center font-mono">{stats.between10and12}</td>
+                    <td className="border border-slate-900 p-1 text-center font-mono">
+                      {stats.evaluatedCount > 0 ? ((stats.between10and12 / stats.evaluatedCount) * 100).toFixed(1) : 0}%
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="border border-slate-900 p-1">ما بين 12 و 13.99 (جيد)</td>
+                    <td className="border border-slate-900 p-1 text-center font-mono">{stats.between12and14}</td>
+                    <td className="border border-slate-900 p-1 text-center font-mono">
+                      {stats.evaluatedCount > 0 ? ((stats.between12and14 / stats.evaluatedCount) * 100).toFixed(1) : 0}%
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="border border-slate-900 p-1">ما بين 14 و 15.99 (جيد جداً)</td>
+                    <td className="border border-slate-900 p-1 text-center font-mono">{stats.between14and16}</td>
+                    <td className="border border-slate-900 p-1 text-center font-mono">
+                      {stats.evaluatedCount > 0 ? ((stats.between14and16 / stats.evaluatedCount) * 100).toFixed(1) : 0}%
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="border border-slate-900 p-1 font-bold">أكبر من 16 (ممتاز)</td>
+                    <td className="border border-slate-900 p-1 text-center font-mono font-bold">{stats.greaterThan16}</td>
+                    <td className="border border-slate-900 p-1 text-center font-mono font-bold">
+                      {stats.evaluatedCount > 0 ? ((stats.greaterThan16 / stats.evaluatedCount) * 100).toFixed(1) : 0}%
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -770,28 +778,30 @@ export const DocumentsExport: React.FC<DocumentsExportProps> = () => {
         {/* --------------------------------------------- */}
         {docType === 'STUDENTS_LIST' && (
           <div className="space-y-3">
-            <table className="w-full text-right border-collapse border border-slate-900 text-xs">
-              <thead className="bg-slate-100 border-b border-slate-900 font-bold">
-                <tr>
-                  <th className="border border-slate-900 p-2 text-center w-12">الرقم</th>
-                  <th className="border border-slate-900 p-2">اسم ولقب التلميذ</th>
-                  <th className="border border-slate-900 p-2 min-w-[180px]">ملاحظات</th>
-                </tr>
-              </thead>
-              <tbody>
-                {classStudents.map(student => (
-                  <tr key={student.id} className="break-inside-avoid">
-                    <td className={`border border-slate-900 text-center font-mono font-bold ${ecoPaperMode ? 'py-1 px-1.5 text-[10px]' : 'p-2'}`}>
-                      {student.numberInList}
-                    </td>
-                    <td className={`border border-slate-900 font-bold ${ecoPaperMode ? 'py-1 px-1.5 text-[10px]' : 'p-2'}`}>
-                      {student.fullName}
-                    </td>
-                    <td className={`border border-slate-900 ${ecoPaperMode ? 'py-1 px-1.5' : 'p-2'}`}></td>
+            <div className="overflow-x-auto scrollbar-thin w-full print:overflow-visible">
+              <table className="w-full min-w-[380px] sm:min-w-0 text-right border-collapse border border-slate-900 text-xs">
+                <thead className="bg-slate-100 border-b border-slate-900 font-bold">
+                  <tr>
+                    <th className="border border-slate-900 p-2 text-center w-12">الرقم</th>
+                    <th className="border border-slate-900 p-2">اسم ولقب التلميذ</th>
+                    <th className="border border-slate-900 p-2 min-w-[180px]">ملاحظات</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {classStudents.map(student => (
+                    <tr key={student.id} className="break-inside-avoid">
+                      <td className={`border border-slate-900 text-center font-mono font-bold ${ecoPaperMode ? 'py-1 px-1.5 text-[10px]' : 'p-2'}`}>
+                        {student.numberInList}
+                      </td>
+                      <td className={`border border-slate-900 font-bold ${ecoPaperMode ? 'py-1 px-1.5 text-[10px]' : 'p-2'}`}>
+                        {student.fullName}
+                      </td>
+                      <td className={`border border-slate-900 ${ecoPaperMode ? 'py-1 px-1.5' : 'p-2'}`}></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

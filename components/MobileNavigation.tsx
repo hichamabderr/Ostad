@@ -4,7 +4,7 @@ import React from 'react';
 import { useAppState } from '@/hooks/app-state-context';
 import { SanadTab } from './SidebarSanad';
 import { AppState } from '@/lib/storage';
-import { Home, Users, ClipboardList, BookOpen, Calendar } from 'lucide-react';
+import { Home, BookOpen, UserCheck, ClipboardList, Calendar } from 'lucide-react';
 
 interface MobileNavigationProps {
   currentTab: SanadTab;
@@ -20,9 +20,9 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { tab: 'dashboard', label: 'الرئيسية', icon: Home },
-  { tab: 'classes', label: 'الأقسام المسندة', icon: Users },
+  { tab: 'sessions', label: 'دفتر النصوص', icon: BookOpen },
+  { tab: 'attendance', label: 'الحضور', icon: UserCheck },
   { tab: 'grades', label: 'النقاط', icon: ClipboardList },
-  { tab: 'prep', label: 'الدروس', icon: BookOpen },
   { tab: 'timetable', label: 'الجدول', icon: Calendar },
 ];
 

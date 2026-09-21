@@ -224,13 +224,6 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
         <div className="flex w-full sm:w-auto items-stretch sm:items-center gap-2 flex-col sm:flex-row">
           <PWAInstallButton />
           <button
-            onClick={handleClearClassesData}
-            className="w-full sm:w-auto min-h-11 flex items-center justify-center gap-2 px-5 py-2.5 bg-orange-50 border border-orange-200 hover:bg-orange-100 text-orange-700 font-bold rounded-xl shadow-xs transition-colors cursor-pointer text-xs"
-            title="يحذف فقط ما يتعلق بالأقسام، التلاميذ، الغيابات والعلامات مع الاحتفاظ بحسابك وجدول التوقيت">
-            <RotateCcw className="w-4 h-4" />
-            <span>إعادة تعيين الأقسام والتلاميذ</span>
-          </button>
-          <button
             onClick={handleSaveSettings}
             className="w-full sm:w-auto min-h-11 flex items-center justify-center gap-2 px-5 py-2.5 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white font-bold rounded-xl shadow-xs transition-colors cursor-pointer text-xs">
             <Save className="w-4 h-4" />
@@ -734,6 +727,24 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
             <span>استعادة ملفات PDF</span>
           </button>
         </div>
+      </div>
+
+      {/* Section 5: Danger Zone (منطقة العمليات الحساسة) */}
+      <div className="bg-rose-50/70 border border-rose-200 rounded-2xl p-5 space-y-3">
+        <div className="flex items-center gap-2 text-xs font-bold text-rose-900">
+          <AlertTriangle className="w-4 h-4 text-rose-600" />
+          <span>منطقة العمليات الحساسة (Danger Zone)</span>
+        </div>
+        <p className="text-xs text-rose-700 leading-relaxed font-medium">
+          هذا الإجراء يقوم بحذف جميع بيانات الأقسام، والتلاميذ، والغيابات، والعلامات بشكل نهائي، مع الإبقاء على ملفك المهني وجدول التوقيت.
+        </p>
+        <button
+          onClick={handleClearClassesData}
+          className="w-full sm:w-auto min-h-11 flex items-center justify-center gap-2 px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-xs transition-colors cursor-pointer text-xs"
+          title="يحذف فقط ما يتعلق بالأقسام، التلاميذ، الغيابات والعلامات مع الاحتفاظ بحسابك وجدول التوقيت">
+          <RotateCcw className="w-4 h-4" />
+          <span>إعادة تعيين الأقسام والتلاميذ...</span>
+        </button>
       </div>
 
       {/* Add Holiday Modal */}

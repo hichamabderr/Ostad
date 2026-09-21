@@ -20,6 +20,7 @@ import {
   Upload,
   Info,
   CheckCircle2,
+  AlertCircle,
   AlertTriangle,
   HelpCircle,
   X,
@@ -524,33 +525,29 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gradesDraft]);
 
-  const handleSaveAllGrades = () => {
+  const handleSaveAllGrades = async () => {
     triggerHapticFeedback();
     setSaveStatus('saving');
-    void persistDraftGrades()
-      .then(() => {
-        setSaveStatus('saved');
-        setToastMessage('تم تأكيد حفظ النقاط في Supabase.');
-        setSaveToast(true);
-      })
-      .catch((error: unknown) => {
-        console.error('Grades sync failed:', error);
-        setSaveStatus('pending');
-        setToastMessage('تعذر حفظ النقاط في السحابة.');
-        setSaveToast(true);
-      });
-
-    const incompleteCount = classStudents.filter(student => {
-      const draft = gradesDraft[student.id];
-      return !draft || draft.continuousEval === '' || draft.quiz === '' || draft.exam === '';
-    }).length;
-    setToastMessage(
-      incompleteCount > 0
-        ? `تم حفظ النقاط. أُجّل حساب المعدل لـ ${incompleteCount} تلميذ حتى تكتمل نقاط التقويم والفرض والاختبار.`
-        : `تم حفظ وحساب كافة علامات ومعدلات الفصل ${selectedTrimester} بنجاح!`
-    );
-    setSaveToast(true);
-    setTimeout(() => setSaveToast(false), 3000);
+    try {
+      await persistDraftGrades();
+      setSaveStatus('saved');
+      const incompleteCount = classStudents.filter(student => {
+        const draft = gradesDraft[student.id];
+        return !draft || draft.continuousEval === '' || draft.quiz === '' || draft.exam === '';
+      }).length;
+      setToastMessage(
+        incompleteCount > 0
+          ? `تم حفظ النقاط. أُجّل حساب المعدل لـ ${incompleteCount} تلميذ حتى تكتمل نقاط التقويم والفرض والاختبار.`
+          : `تم حفظ وحساب كافة علامات ومعدلات الفصل ${selectedTrimester} بنجاح!`
+      );
+      setSaveToast(true);
+      setTimeout(() => setSaveToast(false), 3500);
+    } catch (error: unknown) {
+      console.error('Grades sync failed:', error);
+      setSaveStatus('pending');
+      setToastMessage('تعذر حفظ النقاط في السحابة.');
+      setSaveToast(true);
+    }
   };
 
   // Export marks sheet to Excel
@@ -783,9 +780,41 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
       </div>
 
       {saveToast && (
-        <div className="p-3.5 rounded-xl bg-[var(--primary)] text-white font-bold text-xs flex items-center gap-2 shadow-md">
-          <CheckCircle2 className="w-5 h-5 shrink-0" />
-          <span>{toastMessage || `تم حفظ وحساب كافة علامات ومعدلات الفصل ${selectedTrimester} بنجاح!`}</span>
+        <div
+          role="alert"
+          className={`p-3.5 rounded-xl font-bold text-xs flex items-center justify-between gap-3 shadow-md transition-all ${
+            saveStatus === 'pending' || toastMessage.includes('تعذر')
+              ? 'bg-rose-600 text-white'
+              : 'bg-[var(--primary)] text-white'
+          }`}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            {saveStatus === 'pending' || toastMessage.includes('تعذر') ? (
+              <AlertCircle className="w-5 h-5 shrink-0 text-white" />
+            ) : (
+              <CheckCircle2 className="w-5 h-5 shrink-0 text-white" />
+            )}
+            <span className="truncate">{toastMessage || `تم حفظ وحساب كافة علامات ومعدلات الفصل ${selectedTrimester} بنجاح!`}</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {(saveStatus === 'pending' || toastMessage.includes('تعذر')) && (
+              <button
+                type="button"
+                onClick={handleSaveAllGrades}
+                className="px-2.5 py-1 rounded-lg bg-white text-rose-700 hover:bg-rose-50 text-[11px] font-black transition-colors cursor-pointer"
+              >
+                إعادة المحاولة
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setSaveToast(false)}
+              className="p-1 rounded-lg hover:bg-white/20 text-white transition-colors cursor-pointer"
+              aria-label="إغلاق التنبيه"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 

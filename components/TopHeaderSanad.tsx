@@ -196,16 +196,16 @@ export const TopHeaderSanad: React.FC<TopHeaderSanadProps> = ({
 
           <PWAInstallButton />
           <div
-            className={`hidden sm:flex items-center gap-1.5 text-[10px] font-bold ${syncStatus.className}`}
+            className={`flex items-center gap-1.5 text-[10px] font-bold ${syncStatus.className}`}
             title={syncError || syncStatus.label}
             aria-live="polite">
-            <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
-            <span>{syncStatus.label}</span>
+            <span className="h-2 w-2 rounded-full bg-current shrink-0" aria-hidden="true" />
+            <span className="hidden sm:inline">{syncStatus.label}</span>
             {cloudStatus !== "ready" && cloudStatus !== "loading" && onRetrySync && (
               <button
                 type="button"
                 onClick={onRetrySync}
-                className="underline underline-offset-2"
+                className="underline underline-offset-2 shrink-0 cursor-pointer"
                 aria-label="إعادة محاولة المزامنة">
                 إعادة المحاولة
               </button>
