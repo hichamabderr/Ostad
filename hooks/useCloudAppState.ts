@@ -10,6 +10,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
 import { applySyncOutboxEntry, loadCoreState, resetCloudWorkspace, SyncConflictError } from '@/lib/supabase/core-sync';
 import { flushMemorandaOutbox } from '@/lib/supabase/memoranda-storage';
 import {
+  enqueueSyncDelta,
   enqueueSyncState,
   getSyncDeviceId,
   listSyncOutbox,
@@ -197,6 +198,7 @@ export function useCloudAppState(user: User | null) {
   const pendingSaveTimerRef = useRef<number | null>(null);
   const saveGenerationRef = useRef(0);
   const latestStateRef = useRef(state);
+  const lastSyncedStateRef = useRef<AppState | null>(null);
   const revisionRef = useRef(0);
   const updatedAtRef = useRef(new Date(0).toISOString());
 
@@ -301,6 +303,10 @@ export function useCloudAppState(user: User | null) {
         if (!active) return;
         setState(remoteState);
         latestStateRef.current = remoteState;
+        lastSyncedStateRef.current = remoteState;
+        if (typeof remoteState.cloudRevision === 'number' && remoteState.cloudRevision > revisionRef.current) {
+          revisionRef.current = remoteState.cloudRevision;
+        }
         setCloudStatus('ready');
       })
       .catch((error) => {
@@ -320,6 +326,10 @@ export function useCloudAppState(user: User | null) {
 
       const remoteState = await loadCoreState(client, latestStateRef.current);
       latestStateRef.current = remoteState;
+      lastSyncedStateRef.current = remoteState;
+      if (typeof remoteState.cloudRevision === 'number' && remoteState.cloudRevision > revisionRef.current) {
+        revisionRef.current = remoteState.cloudRevision;
+      }
       setState(remoteState);
     };
 
@@ -337,7 +347,11 @@ export function useCloudAppState(user: User | null) {
         ...(table === 'profiles'
           ? { filter: `id=eq.${user.id}` }
           : { filter: `owner_id=eq.${user.id}` }),
-      }, () => {
+      }, (payload) => {
+        const newRecord = payload.new as { sync_device_id?: string } | null;
+        if (newRecord?.sync_device_id && newRecord.sync_device_id === getSyncDeviceId()) {
+          return;
+        }
         void refreshRemoteState().catch((error) => {
           if (isLocalOnlyCloudError(error)) {
             setCloudStatus('local-only');
@@ -380,24 +394,27 @@ export function useCloudAppState(user: User | null) {
       void hasAuthenticatedOwner(client, user.id)
         .then((authenticated) => {
           if (!authenticated || saveGeneration !== saveGenerationRef.current) return null;
-          return enqueueSyncState(user.id, state, revision, updatedAt);
+          return enqueueSyncDelta(user.id, lastSyncedStateRef.current, state, revision, updatedAt);
         })
-        .then((enqueued) => {
-          if (!enqueued) return false;
+        .then(async (enqueued) => {
+          if (saveGeneration !== saveGenerationRef.current) return false;
+          const pending = await listSyncOutbox(user.id);
+          if (!enqueued && pending.length === 0) return true;
           return flushSyncOutbox(client, user.id, syncingRef, (error) => {
-          if (isLocalOnlyCloudError(error)) {
-            setCloudStatus('local-only');
-            return;
-          }
-          const message = describeCloudError(error).message;
-          setSyncError(message);
-          setCloudStatus(error instanceof Error && error.name === 'SyncConflictError' ? 'conflict' : 'sync-failed');
-          void registerConflict(error);
-          console.error('Cloud state save failed:', message);
+            if (isLocalOnlyCloudError(error)) {
+              setCloudStatus('local-only');
+              return;
+            }
+            const message = describeCloudError(error).message;
+            setSyncError(message);
+            setCloudStatus(error instanceof Error && error.name === 'SyncConflictError' ? 'conflict' : 'sync-failed');
+            void registerConflict(error);
+            console.error('Cloud state save failed:', message);
           });
         })
         .then(async (flushed) => {
           if (!flushed || (await listSyncOutbox(user.id)).length > 0) return;
+          lastSyncedStateRef.current = state;
           setSyncError(null);
           setCloudStatus('ready');
           setState((previous) => (
@@ -442,6 +459,10 @@ export function useCloudAppState(user: User | null) {
         const remoteState = await loadCoreState(client, latestStateRef.current);
         setState(remoteState);
         latestStateRef.current = remoteState;
+        lastSyncedStateRef.current = remoteState;
+        if (typeof remoteState.cloudRevision === 'number' && remoteState.cloudRevision > revisionRef.current) {
+          revisionRef.current = remoteState.cloudRevision;
+        }
         setCloudStatus('ready');
       } catch (error) {
         setCloudStatus('local-only');
@@ -469,12 +490,15 @@ export function useCloudAppState(user: User | null) {
       setCloudStatus(error instanceof Error && error.name === 'SyncConflictError' ? 'conflict' : 'sync-failed');
       void registerConflict(error);
       console.error('Cloud sync retry failed:', message);
-      void registerConflict(error);
     });
     if (!flushed || (await listSyncOutbox(user.id)).length > 0) return;
     try {
       const remoteState = await loadCoreState(client, latestStateRef.current);
       latestStateRef.current = remoteState;
+      lastSyncedStateRef.current = remoteState;
+      if (typeof remoteState.cloudRevision === 'number' && remoteState.cloudRevision > revisionRef.current) {
+        revisionRef.current = remoteState.cloudRevision;
+      }
       setState(remoteState);
       setCloudStatus('ready');
     } catch (error) {
@@ -492,6 +516,10 @@ export function useCloudAppState(user: User | null) {
     await removeSyncOutboxEntry(conflict.outboxId);
     const remoteState = await loadCoreState(client, latestStateRef.current);
     latestStateRef.current = remoteState;
+    lastSyncedStateRef.current = remoteState;
+    if (typeof remoteState.cloudRevision === 'number' && remoteState.cloudRevision > revisionRef.current) {
+      revisionRef.current = remoteState.cloudRevision;
+    }
     setState(remoteState);
     setConflicts((current) => current.filter((item) => item.outboxId !== conflict.outboxId));
     setSyncError(null);
@@ -525,6 +553,10 @@ export function useCloudAppState(user: User | null) {
     }
     const remoteState = await loadCoreState(client, latestStateRef.current);
     latestStateRef.current = remoteState;
+    lastSyncedStateRef.current = remoteState;
+    if (typeof remoteState.cloudRevision === 'number' && remoteState.cloudRevision > revisionRef.current) {
+      revisionRef.current = remoteState.cloudRevision;
+    }
     setState(remoteState);
     setCloudStatus('ready');
   };
@@ -610,6 +642,7 @@ export function useCloudAppState(user: User | null) {
     };
     setState(normalizedState);
     latestStateRef.current = normalizedState;
+    lastSyncedStateRef.current = null;
     await saveAppStateCache(normalizedState);
     setLocalStorageError(null);
     if (user) await waitForSyncConfirmation();
@@ -647,6 +680,7 @@ export function useCloudAppState(user: User | null) {
 
     setState(nextState);
     latestStateRef.current = nextState;
+    lastSyncedStateRef.current = null;
     await saveAppStateCache(nextState);
 
     if (!user) return;
@@ -669,6 +703,7 @@ export function useCloudAppState(user: User | null) {
     }
 
     await removeSyncOutboxEntry(entryId);
+    lastSyncedStateRef.current = nextState;
     setSyncError(null);
     setCloudStatus('ready');
     setState((current) => ({
@@ -698,6 +733,7 @@ export function useCloudAppState(user: User | null) {
     setLocalStorageError(null);
     setState(emptyState);
     latestStateRef.current = emptyState;
+    lastSyncedStateRef.current = emptyState;
     revisionRef.current = 0;
   };
 

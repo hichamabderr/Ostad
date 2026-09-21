@@ -9,7 +9,7 @@ import {
 } from './memoranda-outbox';
 
 const BUCKET = 'memoranda';
-const SIGNED_URL_TTL_SECONDS = 60 * 60;
+const SIGNED_URL_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days (604,800s)
 
 type Client = SupabaseClient<Database>;
 

@@ -42,6 +42,7 @@ export interface AppState {
   sidebarCollapsed?: boolean;
   onboardingDismissed?: boolean;
   deletedRecordIds?: string[];
+  cloudRevision?: number;
 }
 
 const BACKUP_VERSION = "2.0.0";

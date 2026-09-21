@@ -128,13 +128,20 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
     const memorandaResult = await c.from('memoranda_files').select('unit_key,file_name,storage_path,created_at,updated_at,is_bundled,deleted_at').eq('owner_id', userId).eq('is_bundled', false).is('deleted_at', null);
     if (memorandaResult.error) throw memorandaResult.error;
     for (const [, result] of results) if (result.error) throw result.error;
+    let maxRevision = 0;
+    for (const [, result] of results) {
+      for (const row of result.data || []) {
+        const rev = Number(row.sync_revision ?? row.revision ?? 0);
+        if (rev > maxRevision) maxRevision = rev;
+      }
+    }
     const by = (entity: SyncEntity) => (results.find(([key]) => key === entity)?.[1].data || []);
     const classes = by('class').map((r: any) => fromRow('class', r));
     if (!classes.length && !by('student').length && !by('grade').length && isDemoState(localState)) return getEmptyState();
     const profile = by('profile')[0];
     let remoteAvatarUrl: string | undefined;
     if (profile?.avatar_storage_key) {
-      const signedAvatar = await c.storage.from('avatars').createSignedUrl(profile.avatar_storage_key, 3600);
+      const signedAvatar = await c.storage.from('avatars').createSignedUrl(profile.avatar_storage_key, 604800);
       if (signedAvatar.error) throw signedAvatar.error;
       remoteAvatarUrl = signedAvatar.data?.signedUrl;
     }
@@ -220,7 +227,8 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
         ...(localState.unitPdfFiles || {}),
         ...remoteUnitPdfFiles,
       },
-      activeClassId: classes.some((item: ClassRoom) => item.id === localState.activeClassId) ? localState.activeClassId : classes[0]?.id || null };
+      activeClassId: classes.some((item: ClassRoom) => item.id === localState.activeClassId) ? localState.activeClassId : classes[0]?.id || null,
+      cloudRevision: maxRevision };
   } catch (error) { if (schemaError(error)) throw localOnly(); throw error; }
 }
 

@@ -21,7 +21,12 @@ import {
   selectActiveClassId,
   selectStudentsByClass,
 } from '@/lib/state-selectors';
-import { getSyncOperationsForState } from '@/lib/sync-outbox';
+import {
+  getSyncOperationsForState,
+  getSyncOperationsDelta,
+  enqueueSyncDelta,
+  recordsShallowEqual,
+} from '@/lib/sync-outbox';
 import { getDeletedRecordIds, isAuthenticatedOwner } from '@/hooks/useCloudAppState';
 import {
   applySyncOutboxEntry,
@@ -448,5 +453,126 @@ describe('core sync', () => {
     expect(conflict?.value).toEqual(expect.objectContaining({
       entity_id: getCloudRecordId(ownerId, 'class', 'local-class'),
     }));
+  });
+});
+
+describe('delta sync engine', () => {
+  const ownerId = 'delta-owner';
+
+  it('correctly compares objects using recordsShallowEqual', () => {
+    expect(recordsShallowEqual(null, null)).toBe(true);
+    expect(recordsShallowEqual({ a: 1, b: 'two' }, { a: 1, b: 'two' })).toBe(true);
+    expect(recordsShallowEqual({ a: 1, b: { c: 2 } }, { a: 1, b: { c: 2 } })).toBe(true);
+    expect(recordsShallowEqual({ a: 1, b: 'two' }, { a: 1, b: 'three' })).toBe(false);
+    expect(recordsShallowEqual({ a: 1 }, { a: 1, b: 2 })).toBe(false);
+  });
+
+  it('returns empty array when previousState and nextState are identical', () => {
+    const state = getEmptyState();
+    state.classes = [{ id: 'c1', name: '1AS', level: '1AS_SCIENCE', stream: '' }];
+    state.students = [{ id: 's1', classId: 'c1', firstName: 'أحمد', lastName: 'محمد' }];
+    state.grades = [{ id: 'g1', studentId: 's1', classId: 'c1', trimester: 1, continuousAssessment: 15 }];
+
+    const ops = getSyncOperationsDelta(state, state);
+    expect(ops).toHaveLength(0);
+  });
+
+  it('produces only one operation when a single grade changes', () => {
+    const prevState = getEmptyState();
+    prevState.classes = [{ id: 'c1', name: '1AS', level: '1AS_SCIENCE', stream: '' }];
+    prevState.students = [
+      { id: 's1', classId: 'c1', firstName: 'أحمد', lastName: 'محمد' },
+      { id: 's2', classId: 'c1', firstName: 'علي', lastName: 'فاطمة' },
+    ];
+    prevState.grades = [
+      { id: 'g1', studentId: 's1', classId: 'c1', trimester: 1, continuousAssessment: 15 },
+      { id: 'g2', studentId: 's2', classId: 'c1', trimester: 1, continuousAssessment: 14 },
+    ];
+
+    const nextState = {
+      ...prevState,
+      grades: [
+        { ...prevState.grades[0], continuousAssessment: 18 },
+        prevState.grades[1],
+      ],
+    };
+
+    const ops = getSyncOperationsDelta(prevState, nextState);
+    expect(ops).toHaveLength(1);
+    expect(ops[0]).toEqual(expect.objectContaining({
+      id: 'grade:g1',
+      entity: 'grade',
+      action: 'upsert',
+      recordId: 'g1',
+      payload: expect.objectContaining({ continuousAssessment: 18 }),
+    }));
+  });
+
+  it('produces a delete operation when an entity is removed in nextState', () => {
+    const prevState = getEmptyState();
+    prevState.students = [
+      { id: 's1', classId: 'c1', firstName: 'أحمد', lastName: 'محمد' },
+      { id: 's2', classId: 'c1', firstName: 'علي', lastName: 'فاطمة' },
+    ];
+
+    const nextState = {
+      ...prevState,
+      students: [prevState.students[0]], // s2 removed
+    };
+
+    const ops = getSyncOperationsDelta(prevState, nextState);
+    expect(ops).toHaveLength(1);
+    expect(ops[0]).toEqual({
+      id: 'delete:student:s2',
+      entity: 'student',
+      action: 'delete',
+      recordId: 's2',
+    });
+  });
+
+  it('produces delete operations for attendance and behaviors when removed from a session', () => {
+    const prevState = getEmptyState();
+    prevState.sessions = [{
+      id: 'sess-1',
+      classId: 'c1',
+      date: '2026-09-21',
+      attendance: { s1: 'absent', s2: 'late' },
+      disruptions: ['s1'],
+      unwrittenLessons: [],
+      poorParticipation: [],
+      goodParticipation: [],
+    }];
+
+    const nextState = {
+      ...prevState,
+      sessions: [{
+        ...prevState.sessions[0],
+        attendance: { s1: 'absent' }, // s2 attendance removed
+        disruptions: [], // s1 disruption removed
+      }],
+    };
+
+    const ops = getSyncOperationsDelta(prevState, nextState);
+    const deleteAttendance = ops.find((o) => o.id === 'delete:attendance:sess-1:s2');
+    const deleteBehavior = ops.find((o) => o.id === 'delete:behavior:sess-1:s1:disruptions');
+    expect(deleteAttendance).toBeDefined();
+    expect(deleteBehavior).toBeDefined();
+  });
+
+  it('enqueueSyncDelta returns null when no delta exists', async () => {
+    const state = getEmptyState();
+    const result = await enqueueSyncDelta(ownerId, state, state, 1, new Date().toISOString());
+    expect(result).toBeNull();
+  });
+
+  it('enqueueSyncDelta falls back to full sync when previousState is null', async () => {
+    const state = getEmptyState();
+    state.classes = [{ id: 'c1', name: '1AS', level: '1AS_SCIENCE', stream: '' }];
+
+    const result = await enqueueSyncDelta(ownerId, null, state, 1, new Date().toISOString());
+    expect(result).toBeTruthy();
+
+    const outbox = await listSyncOutbox(ownerId);
+    expect(outbox.some((entry) => entry.id === result)).toBe(true);
   });
 });
