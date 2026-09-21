@@ -20,6 +20,18 @@ export function AuthGate({ children }: AuthGateProps) {
 
   useEffect(() => {
     let active = true;
+    const callbackCode = new URLSearchParams(window.location.search).get('code');
+    if (callbackCode && window.location.pathname === '/') {
+      const callbackUrl = new URL('/auth/callback', window.location.origin);
+      callbackUrl.searchParams.set('code', callbackCode);
+      const next = new URLSearchParams(window.location.search).get('next');
+      if (next) callbackUrl.searchParams.set('next', next);
+      window.location.replace(callbackUrl.toString());
+      return () => {
+        active = false;
+      };
+    }
+
     const unsubscribe = subscribeToAuthState((nextUser) => {
       if (!active) return;
       setUser(nextUser);
