@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
-import { getSupabaseEnv } from '@/lib/supabase/env';
+import { getPublicAppUrl, getSupabaseEnv } from '@/lib/supabase/env';
 import { showToast } from '@/components/Toast';
 import type { User } from '@supabase/supabase-js';
 
@@ -145,7 +145,8 @@ function LoginPanel({ onBack }: { onBack: () => void }) {
       const next = `${window.location.pathname}${window.location.search}`;
       // Always use the origin currently serving the app. This prevents a
       // production deployment from inheriting a localhost callback URL.
-      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
+      const appOrigin = getPublicAppUrl() ?? window.location.origin;
+      const redirectTo = `${appOrigin}/auth/callback?next=${encodeURIComponent(next)}`;
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -170,7 +171,8 @@ function LoginPanel({ onBack }: { onBack: () => void }) {
     setErrorMessage(null);
     try {
       const next = `${window.location.pathname}${window.location.search}`;
-      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
+      const appOrigin = getPublicAppUrl() ?? window.location.origin;
+      const redirectTo = `${appOrigin}/auth/callback?next=${encodeURIComponent(next)}`;
       const { error } = await supabase.auth.signInWithOtp({
         email: email.trim(),
         options: { emailRedirectTo: redirectTo },

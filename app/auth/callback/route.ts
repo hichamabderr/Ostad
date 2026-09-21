@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
+import { getPublicAppUrl } from '@/lib/supabase/env';
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const origin = getPublicOrigin(request, url);
+  const origin = getPublicAppUrl() ?? getPublicOrigin(request, url);
   const code = url.searchParams.get('code');
   const next = url.searchParams.get('next');
   const safeNext = next?.startsWith('/') && !next.startsWith('//') ? next : '/';
