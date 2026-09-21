@@ -32,9 +32,17 @@ import {
   enqueueSyncState,
   enqueueSyncOperations,
   listSyncOutbox,
+  markSyncOutboxFailure,
+  syncRetryDelay,
   type SyncOperation,
   type SyncOutboxEntry,
 } from '@/lib/sync-outbox';
+import {
+  enqueueAvatarDelete,
+  enqueueAvatarUpload,
+  getAvatarOutboxEntry,
+  removeAvatarOutboxEntry,
+} from '@/lib/supabase/avatar-outbox';
 
 describe('sync outbox', () => {
   it('resolves shared state slices with a safe active class fallback', () => {
@@ -86,6 +94,28 @@ describe('sync outbox', () => {
       ]),
     );
     expect(entry.operations.every((operation) => !('state' in operation))).toBe(true);
+  });
+
+  it('uses capped exponential backoff and preserves failed outbox entries', async () => {
+    expect(syncRetryDelay(1)).toBe(2000);
+    expect(syncRetryDelay(8)).toBe(256000);
+    expect(syncRetryDelay(20)).toBe(256000);
+
+    const id = await enqueueSyncOperations('owner-1', [], 4, '2026-09-20T20:00:00.000Z');
+    await markSyncOutboxFailure(id, new Error('temporary failure'));
+    const [entry] = await listSyncOutbox('owner-1');
+    expect(entry.attempts).toBe(1);
+    expect(entry.lastError).toBe('temporary failure');
+    expect(Date.parse(entry.nextAttemptAt || '')).toBeGreaterThan(Date.now());
+  });
+
+  it('keeps avatar uploads and deletes as explicit offline operations', async () => {
+    await enqueueAvatarUpload(new File(['avatar'], 'avatar.png', { type: 'image/png' }));
+    expect((await getAvatarOutboxEntry())?.action).toBe('upload');
+    await enqueueAvatarDelete();
+    expect((await getAvatarOutboxEntry())?.action).toBe('delete');
+    await removeAvatarOutboxEntry();
+    expect(await getAvatarOutboxEntry()).toBeUndefined();
   });
 
   it('synchronizes dashboard tasks as first-class row operations', async () => {

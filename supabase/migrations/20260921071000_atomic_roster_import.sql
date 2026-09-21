@@ -18,6 +18,30 @@ begin
     raise exception 'Workspace unavailable';
   end if;
 
+  if (
+    select count(*) from (
+      select c.id
+      from jsonb_to_recordset(coalesce(p_classes, '[]'::jsonb))
+        as c(id uuid, name text, level text, stream text)
+      group by c.id
+      having count(*) > 1
+    ) duplicate_classes
+  ) > 0 then
+    raise exception 'Duplicate class identifiers in roster import payload';
+  end if;
+
+  if (
+    select count(*) from (
+      select s.id
+      from jsonb_to_recordset(coalesce(p_students, '[]'::jsonb))
+        as s(id uuid, class_id uuid, number_in_list integer, full_name text)
+      group by s.id
+      having count(*) > 1
+    ) duplicate_students
+  ) > 0 then
+    raise exception 'Duplicate student identifiers in roster import payload';
+  end if;
+
   insert into public.classes (
     id, workspace_id, owner_id, name, level, section, weekly_hours, updated_by
   )

@@ -1,11 +1,9 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import * as XLSX from 'xlsx';
 import { AppState } from '@/lib/storage';
 import { calculateContinuousEvaluation, calculateStudentAverage } from '@/lib/grade-calculator';
 import { triggerHapticFeedback } from '@/lib/utils';
-import { injectGradesIntoFile } from '@/lib/excel-sync';
 import { Student, StudentGrade } from '@/lib/types';
 import {
   PEDAGOGICAL_TIERS,
@@ -594,6 +592,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = ({
       });
 
       // Pass the official empty file, all students, and the grades
+      const { injectGradesIntoFile } = await import('@/lib/excel-sync');
       const injectionResult = await injectGradesIntoFile(file, state.students, trimesterGrades);
       if (injectionResult.matchedStudents === 0) {
         throw new Error('لم تتم مطابقة أي تلميذ داخل الملف الرسمي. لم يتم تنزيل ملف؛ تحقق من القسم أو رقم التعريف والاسم.');
@@ -626,7 +625,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = ({
     }
   };
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     if (!activeClass) return;
 
     const rows = classStudents.map((st, idx) => {
@@ -654,7 +653,8 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = ({
       ];
     });
 
-    const ws = XLSX.utils.aoa_to_sheet([
+    const { utils, writeFile } = await import('xlsx');
+    const ws = utils.aoa_to_sheet([
       ['الجمهورية الجزائرية الديمقراطية الشعبية'],
       ['وزارة التربية الوطنية'],
       [`كشف نقاط مادة العلوم الإسلامية - ${activeClass.name} - الفصل ${selectedTrimester}`],
@@ -675,12 +675,12 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = ({
       if (ws[cellRef]) ws[cellRef].s = { font: { bold: true, sz: cellRef === 'A3' ? 14 : 11 }, alignment: { horizontal: 'right' } };
     }
     for (let column = 0; column < 9; column++) {
-      const header = XLSX.utils.encode_cell({ r: 3, c: column });
+      const header = utils.encode_cell({ r: 3, c: column });
       if (ws[header]) ws[header].s = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '2E7D9B' } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true } };
     }
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, `الرقمنة_فصل_${selectedTrimester}`);
-    XLSX.writeFile(wb, `كشف_علامات_${activeClass.name.replace(/\s+/g, '_')}_فصل${selectedTrimester}.xlsx`);
+    const wb = utils.book_new();
+    utils.book_append_sheet(wb, ws, `الرقمنة_فصل_${selectedTrimester}`);
+    writeFile(wb, `كشف_علامات_${activeClass.name.replace(/\s+/g, '_')}_فصل${selectedTrimester}.xlsx`);
   };
 
   const gradeSummary = classStudents.reduce((summary, student) => {

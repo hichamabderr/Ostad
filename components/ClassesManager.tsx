@@ -2,12 +2,12 @@
 
 import { showToast } from '@/components/Toast';
 import React, { useEffect, useState, useRef } from 'react';
-import * as XLSX from 'xlsx';
 import { AppState } from '@/lib/storage';
 import { SanadTab } from './SidebarSanad';
 import { ClassRoom, GradeLevel, Student, StudentGrade, TimetableSlot } from '@/lib/types';
-import { parseDigitizationFile, isSchoolSummaryOrFooterRow, ParsedDigitizationResult } from '@/lib/excel-sync';
-import { parseMoumtazeFile, ParsedMoumtazeResult } from '@/lib/moumtaze-sync';
+import { isSchoolSummaryOrFooterRow } from '@/lib/excel-sync';
+import type { ParsedDigitizationResult } from '@/lib/excel-sync';
+import type { ParsedMoumtazeResult } from '@/lib/moumtaze-sync';
 import { commitRosterImportBatch, type RosterImportClass, type RosterImportStudent } from '@/lib/supabase/roster-import';
 import { isSameClass, isSameStudentName, getCanonicalClassName, getStudentNameKey } from '@/lib/name-normalizer';
 import { v4 as uuidv4 } from 'uuid';
@@ -617,6 +617,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
       return;
     }
     try {
+      const { parseDigitizationFile } = await import('@/lib/excel-sync');
       const parsedData = await parseDigitizationFile(file);
       setPendingImport(parsedData);
     } catch (err: any) {
@@ -636,6 +637,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
 
     setIsParsingMoumtaze(true);
     try {
+      const { parseMoumtazeFile } = await import('@/lib/moumtaze-sync');
       const result = await parseMoumtazeFile(file);
       if (result.classes.length === 0) {
         showToast('لم يتم العثور على أي قوائم أقسام داخل هذا الملف. يرجى التأكد من اختيار ملف برنامج الممتاز الصحيح.', 'warning');
@@ -918,11 +920,16 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
       'الشعبة': activeClassObj.stream
     }));
 
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    if (!ws['!dir']) ws['!dir'] = 'rtl';
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'قائمة التلاميذ');
-    XLSX.writeFile(wb, `قائمة_${activeClassObj.name.replace(/\s+/g, '_')}.xlsx`);
+    void import('xlsx').then(({ utils, writeFile }) => {
+      const ws = utils.json_to_sheet(exportData);
+      if (!ws['!dir']) ws['!dir'] = 'rtl';
+      const wb = utils.book_new();
+      utils.book_append_sheet(wb, ws, 'قائمة التلاميذ');
+      writeFile(wb, `قائمة_${activeClassObj.name.replace(/\s+/g, '_')}.xlsx`);
+    }).catch((error) => {
+      console.error('Excel export failed:', error);
+      showToast('تعذر تصدير ملف Excel.', 'error');
+    });
   };
 
   const handleSaveStudent = () => {
