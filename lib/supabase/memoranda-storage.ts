@@ -59,7 +59,7 @@ async function uploadTeacherMemorandumWithContext(
     .select('id,storage_path,revision')
     .eq('owner_id', context.userId)
     .eq('workspace_id' as never, context.workspaceId)
-    .eq('unit_id', unitId)
+    .eq('unit_key', unitId)
     .eq('is_bundled', false)
     .is('deleted_at', null)
     .maybeSingle();
@@ -84,7 +84,8 @@ async function uploadTeacherMemorandumWithContext(
     : await context.client.from('memoranda_files').insert({
         workspace_id: context.workspaceId,
         owner_id: context.userId,
-        unit_id: unitId,
+        unit_id: null,
+        unit_key: unitId,
         file_name: file.name || `${unitId}.pdf`,
         storage_path: storagePath,
         file_size: file.size,
@@ -126,7 +127,7 @@ export async function getMemorandumUrl(unitId: string): Promise<string | undefin
     .select('storage_path')
     .eq('workspace_id' as never, context.workspaceId)
     .eq('owner_id', context.userId)
-    .eq('unit_id', unitId)
+    .eq('unit_key', unitId)
     .is('deleted_at', null)
     .limit(1)
     .maybeSingle();

@@ -25,6 +25,9 @@
 
 ## المعمارية الحالية (إعادة البناء الجذرية)
 
+- جرد الحالة والأجزاء القابلة للتغيير محفوظ في
+  [`STATE-INVENTORY.md`](./STATE-INVENTORY.md)، ويجب تحديثه قبل وبعد أي تغيير
+  يمس بيانات المستخدم أو دورة المزامنة.
 - **Next.js 16.3.5** مع App Router وReact 19 وTypeScript.
 - **Tailwind CSS 4.1** و`lucide-react`، مع واجهة فاتحة RTL وMobile-first.
 - كل وظيفة مساحة عمل لها مسار مستقل قابل للمشاركة: `/dashboard`، `/classes`،

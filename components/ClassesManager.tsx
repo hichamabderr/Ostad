@@ -8,6 +8,7 @@ import { SanadTab } from './SidebarSanad';
 import { ClassRoom, GradeLevel, Student, StudentGrade, TimetableSlot } from '@/lib/types';
 import { parseDigitizationFile, isSchoolSummaryOrFooterRow, ParsedDigitizationResult } from '@/lib/excel-sync';
 import { parseMoumtazeFile, ParsedMoumtazeResult } from '@/lib/moumtaze-sync';
+import { commitRosterImportBatch, type RosterImportClass, type RosterImportStudent } from '@/lib/supabase/roster-import';
 import { isSameClass, isSameStudentName, getCanonicalClassName, getStudentNameKey } from '@/lib/name-normalizer';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -456,6 +457,8 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
   const applyDigitizationImport = (parsedData: ParsedDigitizationResult) => {
     let targetClassIdToSelect: string | null = null;
     let summaryNotificationMsg: string | null = null;
+    const importedClasses: RosterImportClass[] = [];
+    const importedStudents: RosterImportStudent[] = [];
 
     onUpdateState(prev => {
         const updatedClasses = prev.classes.map(classRoom => ({ ...classRoom }));
@@ -509,6 +512,12 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
           }
 
           processedClassIds.push(classObj.id);
+          importedClasses.push({
+            id: classObj.id,
+            name: classObj.name,
+            level: classObj.level,
+            stream: classObj.stream,
+          });
 
           // Process students for this specific class
           const existingStudentsInClass = updatedStudents.filter(s => s.classId === classObj!.id);
@@ -549,6 +558,16 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
                 classId: classObj!.id, // STRICTLY ASSIGNED TO THIS CLASS ID!
               };
               updatedStudents.push(newStudent);
+              importedStudents.push(newStudent);
+            }
+            if (matchByReg || matchByName) {
+              const retained = matchByReg || matchByName;
+              if (retained) {
+                importedStudents.push({
+                  ...retained,
+                  classId: classObj.id,
+                });
+              }
             }
           });
         });
@@ -583,6 +602,10 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     if (targetClassIdToSelect) setSelectedClassId(targetClassIdToSelect);
     if (summaryNotificationMsg) setImportNotification(summaryNotificationMsg);
     setPendingImport(null);
+    void commitRosterImportBatch(importedClasses, importedStudents).catch((error) => {
+      console.error('Atomic roster import sync failed:', error);
+      showToast('تم حفظ الاستيراد محلياً، وتعذرت المصادقة السحابية للدفعة. ستتم إعادة المحاولة عبر المزامنة.', 'warning');
+    });
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -668,6 +691,8 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     let targetClassIdToSelect: string | null = null;
     let totalAdded = 0;
     let totalUpdated = 0;
+    const importedClasses: RosterImportClass[] = [];
+    const importedStudents: RosterImportStudent[] = [];
 
     onUpdateState(prev => {
       const updatedClasses = prev.classes.map(classRoom => ({ ...classRoom }));
@@ -721,6 +746,12 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
         }
 
         processedClassIds.push(classObj.id);
+        importedClasses.push({
+          id: classObj.id,
+          name: classObj.name,
+          level: classObj.level,
+          stream: classObj.stream,
+        });
 
         // Process students for this class
         const existingInClass = updatedStudents.filter(s => s.classId === classObj!.id);
@@ -749,6 +780,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
             if (mStudent.birthDate && !existing.birthDate) existing.birthDate = mStudent.birthDate;
             if (mStudent.gender) existing.gender = mStudent.gender;
             if (mStudent.address && !existing.notes) existing.notes = `العنوان: ${mStudent.address}`;
+            importedStudents.push({ ...existing, classId: classObj.id });
           } else {
             totalAdded++;
             const newStudent: Student = {
@@ -762,6 +794,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
               notes: mStudent.address ? `العنوان: ${mStudent.address}` : undefined,
             };
             updatedStudents.push(newStudent);
+            importedStudents.push(newStudent);
           }
         });
 
@@ -806,6 +839,10 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     );
     setIsMoumtazeModalOpen(false);
     setMoumtazeData(null);
+    void commitRosterImportBatch(importedClasses, importedStudents).catch((error) => {
+      console.error('Atomic Moumtaze roster sync failed:', error);
+      showToast('تم حفظ الاستيراد محلياً، وتعذرت المصادقة السحابية للدفعة. ستتم إعادة المحاولة عبر المزامنة.', 'warning');
+    });
   };
 
   // Quick Paste Names Parser

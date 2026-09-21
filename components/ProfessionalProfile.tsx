@@ -21,6 +21,7 @@ import {
 import { showToast } from '@/components/Toast';
 import React, { useRef, useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { enqueueAvatarDelete, enqueueAvatarUpload } from '@/lib/supabase/avatar-outbox';
 
 interface ProfessionalProfileProps {
   state: AppState;
@@ -78,18 +79,22 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
     const reader = new FileReader();
     reader.onload = (event) => {
       const dataUrl = event.target?.result as string;
+      void enqueueAvatarUpload(file);
       setProfile((prev) => ({
         ...prev,
         avatarUrl: dataUrl,
+        avatarStorageKey: 'profile',
       }));
     };
     reader.readAsDataURL(file);
   };
 
   const handleRemoveImage = () => {
+    void enqueueAvatarDelete();
     setProfile((prev) => ({
       ...prev,
       avatarUrl: undefined,
+      avatarStorageKey: undefined,
     }));
     if (fileInputRef.current) {
       fileInputRef.current.value = "";

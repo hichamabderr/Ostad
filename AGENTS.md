@@ -37,6 +37,9 @@
   مع Supabase أو مرتبط بطابور outbox واضح ومختبر؛ لا يجوز إضافة حالة محلية
   جديدة أو تخزين مستقل دون تحديد مصدر الحقيقة السحابي، عملية الرفع والحذف،
   وإعادة المحاولة والفشل والتعارض.
+  يجب تحديث [`STATE-INVENTORY.md`](./STATE-INVENTORY.md) قبل وبعد كل تغيير
+  يمس حالة أو بيانات قابلة للتعديل، مع توضيح مسار Supabase أو outbox وحالة
+  Realtime وعمليات الحذف والتعارض والاختبارات المرتبطة.
 * **Supabase:** المخطط العلائقي المملوك للمستخدم هو مصدر السحابة: `profiles`,
   `app_settings`, `classes`, `students`, `grades`, `sessions`, `attendance`,
   `session_behaviors`, `timetable_slots`, `lesson_progress`, `lesson_plans`,

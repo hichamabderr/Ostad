@@ -11,6 +11,7 @@ export interface Database {
           workspace_id: string;
           owner_id: string | null;
           unit_id: string | null;
+          unit_key: string | null;
           file_name: string;
           storage_path: string;
           file_size: number;
@@ -18,11 +19,14 @@ export interface Database {
           mime_type: string;
           is_bundled: boolean;
           revision: number;
+          sync_revision: number;
+          sync_updated_at: string;
+          sync_device_id: string | null;
           deleted_at: string | null;
           created_at: string;
           updated_at: string;
         };
-        Insert: Omit<Database['public']['Tables']['memoranda_files']['Row'], 'id' | 'created_at' | 'updated_at'> & { id?: string };
+        Insert: Omit<Database['public']['Tables']['memoranda_files']['Row'], 'id' | 'created_at' | 'updated_at' | 'sync_revision' | 'sync_updated_at' | 'sync_device_id'> & { id?: string; sync_revision?: number; sync_updated_at?: string; sync_device_id?: string | null };
         Update: Partial<Database['public']['Tables']['memoranda_files']['Insert']>;
         Relationships: [];
       };
@@ -35,13 +39,19 @@ export interface Database {
           revision: number;
           updated_by: string | null;
           updated_by_device: string | null;
+          sync_revision: number;
+          sync_updated_at: string;
+          sync_device_id: string | null;
           created_at: string;
           updated_at: string;
         };
-        Insert: Omit<Database['public']['Tables']['app_settings']['Row'], 'id' | 'created_at' | 'updated_at' | 'revision' | 'updated_by_device'> & {
+        Insert: Omit<Database['public']['Tables']['app_settings']['Row'], 'id' | 'created_at' | 'updated_at' | 'revision' | 'updated_by_device' | 'sync_revision' | 'sync_updated_at' | 'sync_device_id'> & {
           id?: string;
           revision?: number;
           updated_by_device?: string | null;
+          sync_revision?: number;
+          sync_updated_at?: string;
+          sync_device_id?: string | null;
         };
         Update: Partial<Database['public']['Tables']['app_settings']['Insert']>;
         Relationships: [];
@@ -82,6 +92,7 @@ export interface Database {
           full_name: string | null;
           title: string | null;
           avatar_url: string | null;
+          avatar_storage_key: string | null;
           school_name: string | null;
           state_name: string | null;
           academic_year: string | null;
@@ -98,10 +109,13 @@ export interface Database {
           birth_place: string | null;
           family_status: string | null;
           gender: 'M' | 'F' | null;
+          sync_revision: number;
+          sync_updated_at: string;
+          sync_device_id: string | null;
           created_at: string;
           updated_at: string;
         };
-        Insert: Partial<Database['public']['Tables']['profiles']['Row']> & { id: string };
+        Insert: Omit<Database['public']['Tables']['profiles']['Row'], 'sync_revision' | 'sync_updated_at' | 'sync_device_id'> & { id: string; sync_revision?: number; sync_updated_at?: string; sync_device_id?: string | null };
         Update: Partial<Database['public']['Tables']['profiles']['Row']>;
         Relationships: [];
       };

@@ -21,6 +21,9 @@ export interface SyncOutboxEntry {
   updatedAt: string;
   operations: SyncOperation[];
   createdAt: string;
+  attempts?: number;
+  nextAttemptAt?: string;
+  lastError?: string;
 }
 
 const OUTBOX_PREFIX = 'sanad:sync-outbox:';
@@ -114,7 +117,10 @@ export async function enqueueSyncOperations(
   ownerId: string, operations: SyncOperation[], revision: number, updatedAt: string,
 ): Promise<string> {
   const id = `${ownerId}:${getSyncDeviceId()}:${revision}:${updatedAt}`;
-  await set(outboxKey(id), { id, ownerId, revision, updatedAt, operations, createdAt: new Date().toISOString() } satisfies SyncOutboxEntry);
+  await set(outboxKey(id), {
+    id, ownerId, revision, updatedAt, operations, createdAt: new Date().toISOString(),
+    attempts: 0, nextAttemptAt: new Date().toISOString(),
+  } satisfies SyncOutboxEntry);
   return id;
 }
 
@@ -127,9 +133,26 @@ export async function listSyncOutbox(ownerId: string): Promise<SyncOutboxEntry[]
     // Read old entries once and convert them in memory; new entries never contain snapshots.
     const legacy = entry as SyncOutboxEntry & { state?: AppState };
     if (!entry.operations && legacy.state) entry.operations = getSyncOperationsForState(legacy.state);
-    return Array.isArray(entry.operations);
+    if (!Array.isArray(entry.operations)) return false;
+    entry.attempts ??= 0;
+    entry.nextAttemptAt ??= entry.createdAt;
+    return true;
   })
     .sort((a, b) => a.revision - b.revision);
+}
+
+export function syncRetryDelay(attempts: number): number {
+  return Math.min(5 * 60_000, 1_000 * 2 ** Math.min(attempts, 8));
+}
+
+export async function markSyncOutboxFailure(id: string, error: unknown): Promise<void> {
+  const entry = (await get<SyncOutboxEntry>(outboxKey(id)));
+  if (!entry) return;
+  const attempts = (entry.attempts ?? 0) + 1;
+  entry.attempts = attempts;
+  entry.nextAttemptAt = new Date(Date.now() + syncRetryDelay(attempts)).toISOString();
+  entry.lastError = error instanceof Error ? error.message : String(error);
+  await set(outboxKey(id), entry);
 }
 
 export async function removeSyncOutboxEntry(id: string): Promise<void> { await del(outboxKey(id)); }

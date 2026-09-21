@@ -259,7 +259,10 @@ describe('core sync', () => {
         const chain = {
           select: () => chain,
           eq: () => chain,
-          maybeSingle: async () => ({ data: options.existing ?? null, error: null }),
+          maybeSingle: async () => ({
+            data: table === 'sync_operations' ? null : options.existing ?? null,
+            error: null,
+          }),
           insert: async (value: unknown) => {
             calls.push({ table, method: 'insert', value });
             return { error: null };
@@ -378,5 +381,36 @@ describe('core sync', () => {
     await expect(applySyncOutboxEntry(client as never, ownerId, entry, deviceId))
       .rejects.toThrow('network failure');
     expect((await listSyncOutbox(ownerId)).some((item) => item.revision === entry.revision)).toBe(true);
+  });
+
+  it('records conflicts with a cloud UUID even when the local id is not a UUID', async () => {
+    const { client, calls } = clientFor({
+      existing: {
+        sync_revision: 9,
+        updated_by: 'another-device',
+        sync_device_id: 'another-device',
+      },
+    });
+    const entry: SyncOutboxEntry = {
+      id: 'entry-local-conflict',
+      ownerId,
+      revision: 7,
+      updatedAt: '2026-09-20T20:00:00.000Z',
+      operations: [{
+        id: 'class:local-class',
+        entity: 'class',
+        action: 'upsert',
+        recordId: 'local-class',
+        payload: { id: 'local-class', name: 'Class', level: '1AS_SCIENCE', stream: '' },
+      }],
+      createdAt: '2026-09-20T20:00:00.000Z',
+    };
+
+    await expect(applySyncOutboxEntry(client as never, ownerId, entry, deviceId))
+      .rejects.toBeInstanceOf(SyncConflictError);
+    const conflict = calls.find((call) => call.table === 'sync_conflicts');
+    expect(conflict?.value).toEqual(expect.objectContaining({
+      entity_id: getCloudRecordId(ownerId, 'class', 'local-class'),
+    }));
   });
 });

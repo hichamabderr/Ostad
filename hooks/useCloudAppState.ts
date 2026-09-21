@@ -15,8 +15,11 @@ import {
   listSyncOutbox,
   removeSyncOutboxEntry,
   clearSyncOutbox,
+  markSyncOutboxFailure,
 } from '@/lib/sync-outbox';
 import { clearMemorandaOutbox } from '@/lib/supabase/memoranda-outbox';
+import { flushAvatarOutbox } from '@/lib/supabase/avatar-storage';
+import { clearAvatarOutbox } from '@/lib/supabase/avatar-outbox';
 import type { AppState } from '@/lib/storage';
 
 export type CloudSyncStatus =
@@ -105,6 +108,7 @@ async function flushSyncOutbox(
   syncingRef.current = true;
   let completed = false;
   try {
+    await flushAvatarOutbox(ownerId);
     await flushMemorandaOutbox();
     while (true) {
       const entries = await listSyncOutbox(ownerId);
@@ -113,9 +117,18 @@ async function flushSyncOutbox(
         completed = true;
         return true;
       }
-
-      await applySyncOutboxEntry(client, ownerId, entry, getSyncDeviceId());
-      await removeSyncOutboxEntry(entry.id);
+      const waitUntil = Date.parse(entry.nextAttemptAt || '');
+      if (Number.isFinite(waitUntil) && waitUntil > Date.now()) {
+        completed = true;
+        return false;
+      }
+      try {
+        await applySyncOutboxEntry(client, ownerId, entry, getSyncDeviceId());
+        await removeSyncOutboxEntry(entry.id);
+      } catch (error) {
+        await markSyncOutboxFailure(entry.id, error);
+        throw error;
+      }
     }
   } catch (error) {
     onError(error);
@@ -437,6 +450,7 @@ export function useCloudAppState(user: User | null) {
       await clearSyncOutbox(user.id);
     }
     await clearMemorandaOutbox();
+    await clearAvatarOutbox();
     await clearTeacherBinaryFiles();
     await clearDashboardTasks();
     const emptyState = getEmptyState();

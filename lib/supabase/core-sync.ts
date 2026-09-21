@@ -7,7 +7,7 @@ import { enqueueSyncState, type SyncEntity, type SyncOperation, type SyncOutboxE
 import { stableUuid } from './migrate-local-state';
 
 type Client = SupabaseClient<Database>;
-type AnyClient = { from(table: string): any; auth: any; rpc: any };
+type AnyClient = { from(table: string): any; auth: any; rpc: any; storage: any };
 export interface SyncMetadata { revision: number; updatedAt: string; deviceId: string; }
 export class SyncConflictError extends Error {
   code = 'SYNC_CONFLICT';
@@ -125,13 +125,19 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
       const result = entity === 'profile' ? await query.eq('id', userId) : await query.eq('owner_id', userId);
       return [entity, result] as const;
     }));
-    const memorandaResult = await c.from('memoranda_files').select('unit_id,file_name,storage_path,created_at,updated_at,is_bundled,deleted_at').eq('owner_id', userId).eq('is_bundled', false).is('deleted_at', null);
+    const memorandaResult = await c.from('memoranda_files').select('unit_key,file_name,storage_path,created_at,updated_at,is_bundled,deleted_at').eq('owner_id', userId).eq('is_bundled', false).is('deleted_at', null);
     if (memorandaResult.error) throw memorandaResult.error;
     for (const [, result] of results) if (result.error) throw result.error;
     const by = (entity: SyncEntity) => (results.find(([key]) => key === entity)?.[1].data || []);
     const classes = by('class').map((r: any) => fromRow('class', r));
     if (!classes.length && !by('student').length && !by('grade').length && isDemoState(localState)) return getEmptyState();
     const profile = by('profile')[0];
+    let remoteAvatarUrl: string | undefined;
+    if (profile?.avatar_storage_key) {
+      const signedAvatar = await c.storage.from('avatars').createSignedUrl(profile.avatar_storage_key, 3600);
+      if (signedAvatar.error) throw signedAvatar.error;
+      remoteAvatarUrl = signedAvatar.data?.signedUrl;
+    }
     const settings = by('settings')[0]?.settings;
     const supplementary = isObject(settings) ? settings : {};
     const dashboardTasks = by('dashboardTask').map((row: any) => ({
@@ -139,10 +145,10 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
       text: row.text,
       done: Boolean(row.done),
     }));
-    const unitPdfFiles = Object.fromEntries(
+    const remoteUnitPdfFiles = Object.fromEntries(
       (memorandaResult.data || [])
-        .filter((row: any) => typeof row.unit_id === 'string' && typeof row.storage_path === 'string')
-        .map((row: any) => [row.unit_id, {
+        .filter((row: any) => typeof row.unit_key === 'string' && typeof row.storage_path === 'string')
+        .map((row: any) => [row.unit_key, {
           fileName: row.file_name,
           cloudStoragePath: row.storage_path,
           uploadedAt: (row.updated_at || row.created_at || new Date().toISOString()).slice(0, 10),
@@ -198,7 +204,8 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
         lastNameEn: profile.last_name_en || undefined,
         email: profile.email || undefined,
         phoneNumber: profile.phone || undefined,
-        avatarUrl: profile.avatar_url || undefined,
+        avatarUrl: remoteAvatarUrl || profile.avatar_url || undefined,
+        avatarStorageKey: profile.avatar_storage_key || undefined,
         firstAppointmentDate: profile.first_appointment_date || undefined,
         experienceYears: profile.experience_years ?? undefined,
         birthDate: profile.birth_date || undefined,
@@ -209,17 +216,45 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
       classes, students: by('student').map((r: any) => fromRow('student', r)), grades: by('grade').map((r: any) => fromRow('grade', r)),
       sessions, timetable: by('timetable').map((r: any) => fromRow('timetable', r)).filter(Boolean),
       lessonProgress: by('lessonProgress').map((r: any) => fromRow('lessonProgress', r)).filter(Boolean), customUnits: by('customUnit').map((r: any) => fromRow('customUnit', r)).filter(Boolean), lessonPlans: by('lessonPlan').map((r: any) => fromRow('lessonPlan', r)).filter(Boolean), dashboardTasks,
-      unitPdfFiles,
+      unitPdfFiles: {
+        ...(localState.unitPdfFiles || {}),
+        ...remoteUnitPdfFiles,
+      },
       activeClassId: classes.some((item: ClassRoom) => item.id === localState.activeClassId) ? localState.activeClassId : classes[0]?.id || null };
   } catch (error) { if (schemaError(error)) throw localOnly(); throw error; }
 }
 
-async function applyOperation(client: AnyClient, ownerId: string, workspace: string, operation: SyncOperation, metadata: SyncMetadata): Promise<void> {
+async function applyOperationOnce(client: AnyClient, ownerId: string, workspace: string, operation: SyncOperation, metadata: SyncMetadata): Promise<void> {
   const table = tables[operation.entity];
+  const recordId = getCloudRecordId(ownerId, operation.entity, operation.recordId);
+  const conflictIfStale = async (existing: any): Promise<void> => {
+    const remoteRevision = Number(existing?.sync_revision ?? existing?.revision ?? 0);
+    const remoteDevice = existing?.sync_device_id || existing?.updated_by || null;
+    if (!existing || remoteRevision <= metadata.revision || remoteDevice === metadata.deviceId) return;
+    const conflict = await client.from('sync_conflicts').insert({
+      workspace_id: workspace,
+      owner_id: ownerId,
+      entity_type: operation.entity,
+      entity_id: recordId,
+      local_revision: metadata.revision,
+      remote_revision: remoteRevision,
+      local_device_id: metadata.deviceId,
+      remote_device_id: remoteDevice,
+      resolution: 'last-write-wins',
+    });
+    if (conflict.error) throw conflict.error;
+    throw new SyncConflictError(operation.entity, operation.recordId, remoteRevision, metadata.revision);
+  };
   if (operation.entity === 'profile') {
     const p = operation.payload as any;
+    const existing = await client.from(table).select('sync_revision,sync_device_id').eq('id', ownerId).maybeSingle();
+    if (existing.error) throw existing.error;
+    await conflictIfStale(existing.data);
     const result = await client.from(table).upsert({
       id: ownerId,
+      sync_revision: metadata.revision,
+      sync_updated_at: metadata.updatedAt,
+      sync_device_id: metadata.deviceId,
       full_name: p.name || null,
       title: p.title || null,
       school_name: p.schoolName || null,
@@ -232,7 +267,8 @@ async function applyOperation(client: AnyClient, ownerId: string, workspace: str
       last_name_en: p.lastNameEn || null,
       email: p.email || null,
       phone: p.phoneNumber || null,
-      avatar_url: p.avatarUrl || null,
+      avatar_url: typeof p.avatarUrl === 'string' && !p.avatarUrl.startsWith('data:') ? p.avatarUrl : null,
+      avatar_storage_key: p.avatarStorageKey || null,
       first_appointment_date: p.firstAppointmentDate || null,
       experience_years: p.experienceYears ?? null,
       birth_date: p.birthDate || null,
@@ -242,30 +278,79 @@ async function applyOperation(client: AnyClient, ownerId: string, workspace: str
     }, { onConflict: 'id' });
     if (result.error) throw result.error; return;
   }
+
   if (operation.entity === 'settings') {
+    const existing = await client.from(table).select('sync_revision,sync_device_id').eq('owner_id', ownerId).eq('workspace_id', workspace).maybeSingle();
+    if (existing.error) throw existing.error;
+    await conflictIfStale(existing.data);
     const result = await client.from(table).upsert({
       owner_id: ownerId,
       workspace_id: workspace,
       settings: operation.payload,
       revision: metadata.revision,
+      sync_revision: metadata.revision,
+      sync_updated_at: metadata.updatedAt,
+      sync_device_id: metadata.deviceId,
       updated_by: ownerId,
-      updated_by_device: metadata.deviceId,
     }, { onConflict: 'workspace_id' });
     if (result.error) throw result.error; return;
   }
-  const recordId = getCloudRecordId(ownerId, operation.entity, operation.recordId);
   const existing = await client.from(table).select('revision,sync_revision,updated_by,sync_device_id').eq('id', recordId).eq('owner_id', ownerId).eq('workspace_id', workspace).maybeSingle();
   if (existing.error) throw existing.error;
-  const remoteRevision = Number(existing.data?.sync_revision ?? existing.data?.revision ?? 0);
-  if (existing.data && remoteRevision > metadata.revision && (existing.data.updated_by || existing.data.sync_device_id) !== metadata.deviceId) {
-    const conflict = await client.from('sync_conflicts').insert({ owner_id: ownerId, entity_type: operation.entity, entity_id: operation.recordId, local_revision: metadata.revision, remote_revision: remoteRevision, local_device_id: metadata.deviceId, remote_device_id: existing.data.updated_by || existing.data.sync_device_id || null, resolution: 'last-write-wins' });
-    if (conflict.error) throw conflict.error;
-    throw new SyncConflictError(operation.entity, operation.recordId, remoteRevision, metadata.revision);
+  await conflictIfStale(existing.data);
+  if (operation.action === 'upsert') {
+    const tombstone = await client.from('sync_tombstones')
+      .select('revision,device_id')
+      .eq('workspace_id', workspace)
+      .eq('owner_id', ownerId)
+      .eq('entity_type', operation.entity)
+      .eq('entity_id', recordId)
+      .maybeSingle();
+    if (tombstone.error) throw tombstone.error;
+    if (tombstone.data && Number(tombstone.data.revision) >= metadata.revision && tombstone.data.device_id !== metadata.deviceId) {
+      throw new SyncConflictError(operation.entity, operation.recordId, Number(tombstone.data.revision), metadata.revision);
+    }
+    const result = await client.from(table).upsert(toRow(operation.entity, operation.payload, ownerId, workspace, metadata), { onConflict: 'id' });
+    if (result.error) throw result.error;
+    if (tombstone.data) {
+      const cleared = await client.from('sync_tombstones').delete()
+        .eq('workspace_id', workspace)
+        .eq('owner_id', ownerId)
+        .eq('entity_type', operation.entity)
+        .eq('entity_id', recordId);
+      if (cleared.error) throw cleared.error;
+    }
+    return;
   }
-  const result = operation.action === 'delete'
-    ? await client.from(table).delete().eq('id', recordId).eq('owner_id', ownerId).eq('workspace_id', workspace)
-    : await client.from(table).upsert(toRow(operation.entity, operation.payload, ownerId, workspace, metadata), { onConflict: 'id' });
+  const tombstone = await client.from('sync_tombstones').upsert({
+    workspace_id: workspace,
+    owner_id: ownerId,
+    entity_type: operation.entity,
+    entity_id: recordId,
+    revision: metadata.revision,
+    device_id: metadata.deviceId,
+  }, { onConflict: 'workspace_id,entity_type,entity_id' });
+  if (tombstone.error) throw tombstone.error;
+  const result = await client.from(table).delete().eq('id', recordId).eq('owner_id', ownerId).eq('workspace_id', workspace);
   if (result.error) throw result.error;
+}
+
+async function applyOperation(client: AnyClient, ownerId: string, workspace: string, operation: SyncOperation, metadata: SyncMetadata): Promise<void> {
+  const operationId = `${metadata.revision}:${metadata.updatedAt}:${operation.id}`;
+  const existing = await client.from('sync_operations')
+    .select('operation_id')
+    .eq('workspace_id', workspace)
+    .eq('operation_id', operationId)
+    .maybeSingle();
+  if (existing.error) throw existing.error;
+  if (existing.data) return;
+  await applyOperationOnce(client, ownerId, workspace, operation, metadata);
+  const claim = await client.rpc('claim_sync_operation', {
+    p_workspace_id: workspace,
+    p_owner_id: ownerId,
+    p_operation_id: operationId,
+  });
+  if (claim.error) throw claim.error;
 }
 
 export async function saveCoreState(client: Client, ownerId: string, state: AppState, metadata: SyncMetadata = { revision: 0, updatedAt: new Date().toISOString(), deviceId: 'server' }): Promise<void> {
