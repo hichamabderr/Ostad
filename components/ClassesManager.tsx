@@ -58,7 +58,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
   onNavigate,
   initialSubTab = 'classes',
 }) => {
-  const { state, updateState: onUpdateState } = useAppState();
+  const { state, updateState: onUpdateState, updateStateAndWait } = useAppState();
   const [activeSubTab, setActiveSubTab] = useState<'classes' | 'timetable' | 'students'>(initialSubTab);
   const [classSearch, setClassSearch] = useState('');
   const [classLevelFilter, setClassLevelFilter] = useState<GradeLevel | 'ALL'>('ALL');
@@ -240,11 +240,12 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     }, new Map<string, Student[]>()).values()
   ).filter(group => group.length > 1);
 
-  const handleMergeStudents = () => {
+  const handleMergeStudents = async () => {
     if (!mergePair) return;
     const { primary, duplicate } = mergePair;
 
-    onUpdateState(prev => {
+    try {
+      await updateStateAndWait(prev => {
       const gradeByKey = new Map<string, StudentGrade>();
       prev.grades
         .filter(grade => grade.studentId === primary.id || grade.studentId === duplicate.id)
@@ -337,10 +338,14 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
         grades: updatedGrades,
         sessions: updatedSessions
       };
-    });
-
-    setMergePair(null);
-    setImportNotification(`تم دمج سجلي «${duplicate.fullName}» و«${primary.fullName}» مع الحفاظ على الدرجات والحضور.`);
+      });
+      setMergePair(null);
+      setImportNotification(`تم دمج سجلي «${duplicate.fullName}» و«${primary.fullName}» مع الحفاظ على الدرجات والحضور.`);
+      showToast('تم دمج سجلي التلميذين ومزامنة التغييرات مع Supabase.', 'success');
+    } catch (error: unknown) {
+      console.error('Student merge sync failed:', error);
+      showToast(error instanceof Error ? error.message : 'تعذرت مزامنة دمج سجلي التلميذين.', 'error');
+    }
   };
 
   const visibleClasses = state.classes.filter(cls => {
@@ -369,29 +374,32 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     setIsClassModalOpen(true);
   };
 
-  const handleSaveClass = () => {
+  const handleSaveClass = async () => {
     if (!editingClass || !editingClass.name) return;
     
     // Unify class name on manual save
     const canonicalName = getCanonicalClassName(editingClass.name);
     const classToSave = { ...editingClass, name: canonicalName };
 
-    onUpdateState(prev => {
-      const idx = prev.classes.findIndex(c => c.id === editingClass.id);
-      let updatedClasses = [...prev.classes];
-      if (idx >= 0) {
-        updatedClasses[idx] = classToSave as ClassRoom;
-      } else {
-        updatedClasses.push(classToSave as ClassRoom);
-      }
-      return {
-        ...prev,
-        classes: updatedClasses,
-        activeClassId: prev.activeClassId || classToSave.id || null
-      };
-    });
-    setIsClassModalOpen(false);
-    setEditingClass(null);
+    try {
+      await updateStateAndWait(prev => {
+        const idx = prev.classes.findIndex(c => c.id === editingClass.id);
+        const updatedClasses = [...prev.classes];
+        if (idx >= 0) updatedClasses[idx] = classToSave as ClassRoom;
+        else updatedClasses.push(classToSave as ClassRoom);
+        return {
+          ...prev,
+          classes: updatedClasses,
+          activeClassId: prev.activeClassId || classToSave.id || null
+        };
+      });
+      setIsClassModalOpen(false);
+      setEditingClass(null);
+      showToast('تم حفظ القسم ومزامنته مع Supabase.', 'success');
+    } catch (error: unknown) {
+      console.error('Class sync failed:', error);
+      showToast(error instanceof Error ? error.message : 'تعذر مزامنة القسم.', 'error');
+    }
   };
 
   const promptDeleteClass = (cls: ClassRoom) => {
@@ -418,27 +426,36 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     setIsSlotModalOpen(true);
   };
 
-  const handleSaveSlot = () => {
+  const handleSaveSlot = async () => {
     if (!editingSlot || !editingSlot.classId) return;
-    onUpdateState(prev => {
-      const idx = prev.timetable.findIndex(s => s.id === editingSlot.id);
-      let updatedSlots = [...prev.timetable];
-      if (idx >= 0) {
-        updatedSlots[idx] = editingSlot as TimetableSlot;
-      } else {
-        updatedSlots.push(editingSlot as TimetableSlot);
-      }
-      return { ...prev, timetable: updatedSlots };
-    });
-    setIsSlotModalOpen(false);
-    setEditingSlot(null);
+    try {
+      await updateStateAndWait(prev => {
+        const idx = prev.timetable.findIndex(s => s.id === editingSlot.id);
+        const updatedSlots = [...prev.timetable];
+        if (idx >= 0) updatedSlots[idx] = editingSlot as TimetableSlot;
+        else updatedSlots.push(editingSlot as TimetableSlot);
+        return { ...prev, timetable: updatedSlots };
+      });
+      setIsSlotModalOpen(false);
+      setEditingSlot(null);
+      showToast('تم حفظ حصة التوقيت ومزامنتها مع Supabase.', 'success');
+    } catch (error: unknown) {
+      console.error('Timetable slot sync failed:', error);
+      showToast(error instanceof Error ? error.message : 'تعذر مزامنة حصة التوقيت.', 'error');
+    }
   };
 
-  const handleDeleteSlot = (slotId: string) => {
-    onUpdateState(prev => ({
-      ...prev,
-      timetable: prev.timetable.filter(s => s.id !== slotId)
-    }));
+  const handleDeleteSlot = async (slotId: string) => {
+    try {
+      await updateStateAndWait(prev => ({
+        ...prev,
+        timetable: prev.timetable.filter(s => s.id !== slotId)
+      }));
+      showToast('تم حذف حصة التوقيت ومزامنة الحذف مع Supabase.', 'success');
+    } catch (error: unknown) {
+      console.error('Timetable slot deletion sync failed:', error);
+      showToast(error instanceof Error ? error.message : 'تعذر مزامنة حذف حصة التوقيت.', 'error');
+    }
   };
 
   const promptDeleteSlot = (slot: TimetableSlot) => {
@@ -454,7 +471,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
   // ---------------------------------------------
   // Student Operations & Excel / CSV Platform Import
   // ---------------------------------------------
-  const applyDigitizationImport = (parsedData: ParsedDigitizationResult) => {
+  const applyDigitizationImport = async (parsedData: ParsedDigitizationResult) => {
     let targetClassIdToSelect: string | null = null;
     let summaryNotificationMsg: string | null = null;
     const importedClasses: RosterImportClass[] = [];
@@ -601,11 +618,14 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     });
     if (targetClassIdToSelect) setSelectedClassId(targetClassIdToSelect);
     if (summaryNotificationMsg) setImportNotification(summaryNotificationMsg);
-    setPendingImport(null);
-    void commitRosterImportBatch(importedClasses, importedStudents).catch((error) => {
+    try {
+      await commitRosterImportBatch(importedClasses, importedStudents);
+      setPendingImport(null);
+      showToast('تم استيراد القوائم ومزامنتها مع Supabase.', 'success');
+    } catch (error) {
       console.error('Atomic roster import sync failed:', error);
       showToast('تم حفظ الاستيراد محلياً، وتعذرت المصادقة السحابية للدفعة. ستتم إعادة المحاولة عبر المزامنة.', 'warning');
-    });
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -672,7 +692,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     setSelectedMoumtazeClassIds([]);
   };
 
-  const handleConfirmMoumtazeImport = () => {
+  const handleConfirmMoumtazeImport = async () => {
     if (!moumtazeData || selectedMoumtazeClassIds.length === 0) {
       showToast('يرجى تحديد قسم واحد على الأقل للاستيراد.', 'warning');
       return;
@@ -839,16 +859,19 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     setImportNotification(
       `تم تجهيز ${classesToImport.length} أفواج للمزامنة من برنامج الممتاز (${totalAdded} تلميذاً جديداً، و ${totalUpdated} تلميذ تم تحديث بياناتهم وحفظ القاعات). سيظهر التأكيد بعد إقرار Supabase.`
     );
-    setIsMoumtazeModalOpen(false);
-    setMoumtazeData(null);
-    void commitRosterImportBatch(importedClasses, importedStudents).catch((error) => {
+    try {
+      await commitRosterImportBatch(importedClasses, importedStudents);
+      setIsMoumtazeModalOpen(false);
+      setMoumtazeData(null);
+      showToast('تم استيراد قوائم الممتاز ومزامنتها مع Supabase.', 'success');
+    } catch (error) {
       console.error('Atomic Moumtaze roster sync failed:', error);
       showToast('تم حفظ الاستيراد محلياً، وتعذرت المصادقة السحابية للدفعة. ستتم إعادة المحاولة عبر المزامنة.', 'warning');
-    });
+    }
   };
 
   // Quick Paste Names Parser
-  const handleQuickPasteNames = () => {
+  const handleQuickPasteNames = async () => {
     if (!pastedNames.trim() || !selectedClassId) return;
 
     const lines = pastedNames
@@ -879,7 +902,8 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     }
 
     if (newStudents.length > 0) {
-      onUpdateState(prev => {
+      try {
+        await updateStateAndWait(prev => {
         const combined = [...prev.students, ...newStudents];
         // Renumber all students in this class strictly starting from 1 continuously
         const inClass = combined
@@ -899,8 +923,13 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
         });
 
         return { ...prev, students: renumbered };
-      });
-      setImportNotification(`تمت إضافة ${newStudents.length} تلميذاً عبر اللصق السريع مع ضبط الترقيم التسلسلي من 1.`);
+        });
+        setImportNotification(`تمت إضافة ${newStudents.length} تلميذاً عبر اللصق السريع مع ضبط الترقيم التسلسلي من 1.`);
+      } catch (error: unknown) {
+        console.error('Quick paste sync failed:', error);
+        showToast(error instanceof Error ? error.message : 'تعذرت مزامنة التلاميذ المضافين.', 'error');
+        return;
+      }
     }
 
     setPastedNames('');
@@ -932,9 +961,10 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     });
   };
 
-  const handleSaveStudent = () => {
+  const handleSaveStudent = async () => {
     if (!editingStudent || !editingStudent.fullName || !selectedClassId) return;
-    onUpdateState(prev => {
+    try {
+      await updateStateAndWait(prev => {
       const idx = prev.students.findIndex(s => s.id === editingStudent.id);
       let updated = [...prev.students];
       if (idx >= 0) {
@@ -965,9 +995,14 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
       });
 
       return { ...prev, students: renumbered };
-    });
-    setIsStudentModalOpen(false);
-    setEditingStudent(null);
+      });
+      setIsStudentModalOpen(false);
+      setEditingStudent(null);
+      showToast('تم حفظ التلميذ ومزامنته مع Supabase.', 'success');
+    } catch (error: unknown) {
+      console.error('Student sync failed:', error);
+      showToast(error instanceof Error ? error.message : 'تعذر مزامنة التلميذ.', 'error');
+    }
   };
 
   const promptDeleteStudent = (student: Student) => {
@@ -980,9 +1015,10 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
   };
 
   // Re-sequence the active class numbers starting from 1 and clean any summary rows
-  const handleResequenceCurrentClass = () => {
+  const handleResequenceCurrentClass = async () => {
     if (!selectedClassId) return;
-    onUpdateState(prev => {
+    try {
+      await updateStateAndWait(prev => {
       // 1. Filter out any accidental summary rows like "ذكور" or "إناث" or "المجموع" 
       const cleaned = prev.students.filter(s => {
         if (s.classId !== selectedClassId) return true;
@@ -1008,16 +1044,21 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
       });
 
       return { ...prev, students: renumbered };
-    });
-    setImportNotification('تم تحديث وإعادة ضبط ترقيم تلاميذ القسم تسلسلياً بدءاً من 1.');
+      });
+      setImportNotification('تم تحديث وإعادة ضبط ترقيم تلاميذ القسم تسلسلياً بدءاً من 1.');
+    } catch (error: unknown) {
+      console.error('Student resequence sync failed:', error);
+      showToast(error instanceof Error ? error.message : 'تعذرت مزامنة إعادة الترقيم.', 'error');
+    }
   };
 
-  const handleExecuteDelete = () => {
+  const handleExecuteDelete = async () => {
     if (!deleteConfirmDialog) return;
     const { type, id } = deleteConfirmDialog;
 
     if (type === 'student') {
-      onUpdateState(prev => {
+      try {
+        await updateStateAndWait(prev => {
         const studentToDelete = prev.students.find(s => s.id === id);
         const classId = studentToDelete?.classId || selectedClassId;
         const remainingStudents = prev.students.filter(s => s.id !== id);
@@ -1050,20 +1091,33 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
           students: updatedStudents,
           grades: prev.grades.filter(g => g.studentId !== id)
         };
-      });
+        });
+        showToast('تم حذف التلميذ ومزامنة الحذف مع Supabase.', 'success');
+      } catch (error: unknown) {
+        console.error('Student deletion sync failed:', error);
+        showToast(error instanceof Error ? error.message : 'تعذرت مزامنة حذف التلميذ.', 'error');
+        return;
+      }
     } else if (type === 'class') {
-      onUpdateState(prev => ({
-        ...prev,
-        classes: prev.classes.filter(c => c.id !== id),
-        students: prev.students.filter(s => s.classId !== id),
-        timetable: prev.timetable.filter(s => s.classId !== id),
-        activeClassId:
-          prev.activeClassId === id
-            ? prev.classes.find(c => c.id !== id)?.id || null
-            : prev.activeClassId
-      }));
+      try {
+        await updateStateAndWait(prev => ({
+          ...prev,
+          classes: prev.classes.filter(c => c.id !== id),
+          students: prev.students.filter(s => s.classId !== id),
+          timetable: prev.timetable.filter(s => s.classId !== id),
+          activeClassId:
+            prev.activeClassId === id
+              ? prev.classes.find(c => c.id !== id)?.id || null
+              : prev.activeClassId
+        }));
+        showToast('تم حذف القسم ومزامنة الحذف مع Supabase.', 'success');
+      } catch (error: unknown) {
+        console.error('Class deletion sync failed:', error);
+        showToast(error instanceof Error ? error.message : 'تعذرت مزامنة حذف القسم.', 'error');
+        return;
+      }
     } else if (type === 'slot') {
-      handleDeleteSlot(id);
+      await handleDeleteSlot(id);
     }
     setDeleteConfirmDialog(null);
   };
