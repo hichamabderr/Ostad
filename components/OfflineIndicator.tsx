@@ -31,12 +31,12 @@ export const OfflineIndicator: React.FC<{
           : cloudStatus === 'loading'
             ? 'جارٍ مزامنة مساحة العمل...'
             : cloudStatus === 'sync-pending'
-              ? 'تغييرات محلية بانتظار المزامنة...'
+              ? 'جارٍ حفظ التغييرات...'
               : cloudStatus === 'conflict'
                 ? `يوجد تعارض يحتاج إعادة المحاولة${syncError ? `: ${syncError}` : ''}`
                 : cloudStatus === 'sync-failed'
-                  ? `تعذرت المزامنة${syncError ? `: ${syncError}` : ''}`
-                  : 'المزامنة السحابية متوقفة — تغييراتك محفوظة محلياً.'}
+                  ? 'تعذّر الحفظ السحابي — ستتم إعادة المحاولة تلقائياً.'
+                  : 'الحفظ السحابي متوقف — تغييراتك محفوظة محلياً.'}
       </span>
       {isOnline && cloudStatus === 'conflict' && onOpenConflict && (
         <button type="button" onClick={onOpenConflict} className="inline-flex min-h-8 items-center gap-1 rounded-lg bg-white/15 px-2 text-[11px] hover:bg-white/25">

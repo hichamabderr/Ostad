@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
 import { getPublicAppUrl, getSupabaseEnv } from '@/lib/supabase/env';
+import { getCachedAuthUser, initializeAuthState, subscribeToAuthState } from '@/lib/supabase/auth-state';
 import { showToast } from '@/components/Toast';
 import type { User } from '@supabase/supabase-js';
 
@@ -12,48 +13,33 @@ interface AuthGateProps {
 }
 
 export function AuthGate({ children }: AuthGateProps) {
-  const [user, setUser] = useState<User | null>(null);
+  const cachedUser = getCachedAuthUser();
+  const [user, setUser] = useState<User | null>(cachedUser ?? null);
   const configured = Boolean(getSupabaseEnv());
-  const [loading, setLoading] = useState(configured);
-  const codeExchangeAttempted = useRef(false);
+  const [loading, setLoading] = useState(configured && cachedUser === undefined);
 
   useEffect(() => {
-    const supabase = createSupabaseBrowserClient();
-    if (!supabase) return;
-
     let active = true;
-    const callbackUrl = new URL(window.location.href);
-    const code = callbackUrl.searchParams.get('code');
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    });
-
-    const initializeAuth = async () => {
-      if (code && !codeExchangeAttempted.current) {
-        codeExchangeAttempted.current = true;
-        callbackUrl.searchParams.delete('code');
-        window.history.replaceState({}, '', callbackUrl);
-        const { error } = await supabase.auth.exchangeCodeForSession(code);
-        if (error && error.message !== 'Auth session missing!') {
-          console.error('OAuth code exchange failed:', error.message);
-        }
-      }
-
-      const { data, error } = await supabase.auth.getUser();
+    const unsubscribe = subscribeToAuthState((nextUser) => {
       if (!active) return;
-      if (error && error.message !== 'Auth session missing!') {
-        console.error('Supabase session lookup failed:', error.message);
-      }
-      setUser(data.user ?? null);
+      setUser(nextUser);
       setLoading(false);
-    };
-
-    void initializeAuth();
+    });
+    void initializeAuthState()
+      .then((nextUser) => {
+        if (!active) return;
+        setUser(nextUser);
+        setLoading(false);
+      })
+      .catch((error) => {
+        if (!active) return;
+        console.error('Supabase session lookup failed:', error);
+        setLoading(false);
+      });
 
     return () => {
       active = false;
-      listener.subscription.unsubscribe();
+      unsubscribe();
     };
   }, []);
 

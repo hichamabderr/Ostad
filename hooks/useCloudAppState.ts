@@ -133,13 +133,11 @@ export async function flushSyncOutbox(
 
   syncingRef.current = true;
   let completed = false;
+  let retryAt: number | null = null;
   try {
-    if (!(await hasAuthenticatedOwner(client, ownerId))) return false;
     await flushAvatarOutbox(ownerId);
-    if (!(await hasAuthenticatedOwner(client, ownerId))) return false;
     await flushMemorandaOutbox();
     while (true) {
-      if (!(await hasAuthenticatedOwner(client, ownerId))) return false;
       const entries = await listSyncOutbox(ownerId);
       const entry = entries[0];
       if (!entry) {
@@ -148,7 +146,7 @@ export async function flushSyncOutbox(
       }
       const waitUntil = Date.parse(entry.nextAttemptAt || '');
       if (Number.isFinite(waitUntil) && waitUntil > Date.now()) {
-        completed = true;
+        retryAt = waitUntil;
         return false;
       }
       try {
@@ -172,6 +170,12 @@ export async function flushSyncOutbox(
           }
         })
         .catch(onError);
+    } else if (retryAt !== null) {
+      window.setTimeout(() => {
+        if (!syncingRef.current) {
+          void flushSyncOutbox(client, ownerId, syncingRef, onError);
+        }
+      }, Math.max(0, retryAt - Date.now()));
     }
   }
 }
@@ -556,7 +560,7 @@ export function useCloudAppState(user: User | null) {
     }
 
     await new Promise((resolve) => window.setTimeout(resolve, 0));
-    const deadline = Date.now() + 30_000;
+    const deadline = Date.now() + 5_000;
     let observedPendingWork = false;
     while (Date.now() < deadline) {
       const pending = await listSyncOutbox(user.id);
@@ -572,12 +576,19 @@ export function useCloudAppState(user: User | null) {
       }
       await new Promise((resolve) => window.setTimeout(resolve, 250));
     }
-    throw new Error('انتهت مهلة تأكيد الحفظ في Supabase. بقيت العملية في طابور المزامنة.');
+    throw new Error('تأخر تأكيد الحفظ السحابي. حُفظ التغيير محلياً وستتم إعادة المزامنة تلقائياً.');
   };
 
   const updateStateAndWait = async (updater: (previous: AppState) => AppState): Promise<void> => {
     handleUpdateState(updater);
-    await waitForSyncConfirmation();
+    try {
+      await waitForSyncConfirmation();
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('تأخر تأكيد الحفظ السحابي')) {
+        return;
+      }
+      throw error;
+    }
   };
 
   const replaceStateFromBackup = async (nextState: AppState): Promise<void> => {
