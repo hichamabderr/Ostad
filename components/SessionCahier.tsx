@@ -1,6 +1,7 @@
 'use client';
 
 import { ConfirmDialog } from './ConfirmDialog';
+import { useAppState } from '@/hooks/app-state-context';
 import { showToast } from "@/components/Toast";
 import React, { useEffect, useState, useRef } from 'react';
 import { AppState } from '@/lib/storage';
@@ -37,8 +38,6 @@ import {
 import { exportToDoc } from '@/lib/utils';
 
 interface SessionCahierProps {
-  state: AppState;
-  onUpdateState: (updater: (prev: AppState) => AppState) => void;
 }
 
 interface FormattingBarProps {
@@ -88,10 +87,8 @@ const FormattingBar: React.FC<FormattingBarProps> = ({ setter }) => {
   );
 };
 
-export const SessionCahier: React.FC<SessionCahierProps> = ({
-  state,
-  onUpdateState
-}) => {
+export const SessionCahier: React.FC<SessionCahierProps> = () => {
+  const { state, updateState: onUpdateState } = useAppState();
   const activeClass = state.classes.find(c => c.id === state.activeClassId);
 
   const availableUnits = getMergedCurriculumUnits(state.customUnits).filter(

@@ -1,6 +1,7 @@
 'use client';
 
 import { ConfirmDialog } from './ConfirmDialog';
+import { useAppState } from '@/hooks/app-state-context';
 import React, { useState } from 'react';
 import { AppState } from '@/lib/storage';
 import { OFFICIAL_CURRICULUM, OFFICIAL_LEVELS, getMergedCurriculumUnits, loadAllCurriculum } from '@/lib/curriculum-data';
@@ -27,16 +28,13 @@ import {
 } from 'lucide-react';
 
 interface CurriculumViewProps {
-  state: AppState;
-  onUpdateState: (updater: (prev: AppState) => AppState) => void;
   onPrepareUnit: (unit: CurriculumUnit, tab?: 'card' | 'pdf' | 'bank') => void;
 }
 
 export const CurriculumView: React.FC<CurriculumViewProps> = ({
-  state,
-  onUpdateState,
   onPrepareUnit
 }) => {
+  const { state, updateState: onUpdateState } = useAppState();
   const [, setLoaded] = useState(false);
   useEffect(() => {
     loadAllCurriculum().then(() => setLoaded(true));

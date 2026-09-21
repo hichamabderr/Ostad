@@ -1,5 +1,6 @@
 "use client";
 import Image from "next/image";
+import { useAppState } from '@/hooks/app-state-context';
 
 import { AppState, exportBackupJSON } from "@/lib/storage";
 import {
@@ -39,7 +40,6 @@ export type SanadTab =
 interface SidebarSanadProps {
   currentTab: SanadTab;
   onSelectTab: (tab: SanadTab) => void;
-  state: AppState;
   isOpenMobile?: boolean;
   onCloseMobile?: () => void;
   isCollapsed?: boolean;
@@ -50,13 +50,13 @@ interface SidebarSanadProps {
 export const SidebarSanad: React.FC<SidebarSanadProps> = ({
   currentTab,
   onSelectTab,
-  state,
   isOpenMobile = false,
   onCloseMobile,
   isCollapsed = false,
   onToggleCollapse,
   onSignOut,
 }) => {
+  const { state, updateState: onUpdateState } = useAppState();
   const navGroups: {
     groupName: string;
     items: {

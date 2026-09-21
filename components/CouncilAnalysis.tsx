@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useAppState } from '@/hooks/app-state-context';
 import { exportToDoc } from '@/lib/utils';
 import { AppState } from '@/lib/storage';
 import { calculateCouncilStatistics } from '@/lib/grade-calculator';
@@ -17,10 +18,10 @@ import {
 } from 'lucide-react';
 
 interface CouncilAnalysisProps {
-  state: AppState;
 }
 
-export const CouncilAnalysis: React.FC<CouncilAnalysisProps> = ({ state }) => {
+export const CouncilAnalysis: React.FC<CouncilAnalysisProps> = () => {
+  const { state, updateState: onUpdateState } = useAppState();
   const [selectedClassId, setSelectedClassId] = useState<string>(
     state.activeClassId || (state.classes[0]?.id || '')
   );

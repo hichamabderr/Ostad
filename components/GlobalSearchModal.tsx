@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useAppState } from '@/hooks/app-state-context';
 import { AppState } from '@/lib/storage';
 import { getMergedCurriculumUnits } from "@/lib/curriculum-data";
 import { SanadTab } from './SidebarSanad';
@@ -11,20 +12,17 @@ import { AccessibleDialog } from './AccessibleDialog';
 interface GlobalSearchModalProps {
   isOpen: boolean;
   onClose: () => void;
-  state: AppState;
   onNavigate: (tab: SanadTab) => void;
-  onUpdateState: (updater: (prev: AppState) => AppState) => void;
   onPrepareUnit?: (unit: ReturnType<typeof getMergedCurriculumUnits>[number]) => void;
 }
 
 export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   isOpen,
   onClose,
-  state,
   onNavigate,
-  onUpdateState,
   onPrepareUnit
 }) => {
+  const { state, updateState: onUpdateState } = useAppState();
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebounce(query, 300);
 

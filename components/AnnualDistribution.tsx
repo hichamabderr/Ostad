@@ -1,5 +1,6 @@
 "use client";
 
+import { useAppState } from '@/hooks/app-state-context';
 import {
   getMergedCurriculumUnits,
   getWeeklyHours,
@@ -12,8 +13,6 @@ import { Layers, Printer } from "lucide-react";
 import React, { useEffect, useState } from "react";
 
 interface AnnualDistributionProps {
-  state: AppState;
-  onUpdateState?: (updater: (prev: AppState) => AppState) => void;
 }
 
 export interface UnitScheduleInfo {
@@ -179,8 +178,8 @@ export const getUnitSchedule = (
 };
 
 export const AnnualDistribution: React.FC<AnnualDistributionProps> = ({
-  state,
 }) => {
+  const { state, updateState: onUpdateState } = useAppState();
   const [selectedLevel, setSelectedLevel] = useState<GradeLevel>("3AS");
   const [curriculumLoaded, setCurriculumLoaded] = useState(false);
 

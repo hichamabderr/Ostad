@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useCloudAppState } from "@/hooks/useCloudAppState";
+import { AppStateProvider } from "@/hooks/app-state-context";
 import { SidebarSanad, SanadTab } from "@/components/SidebarSanad";
 import { TopHeaderSanad } from "@/components/TopHeaderSanad";
 import { MobileNavigation } from "@/components/MobileNavigation";
@@ -212,6 +213,12 @@ function AppContent({
   }
 
   return (
+    <AppStateProvider value={{
+      state,
+      updateState: handleUpdateState,
+      replaceStateFromBackup,
+      resetWorkspace,
+    }}>
     <div
       className="min-h-screen flex flex-row bg-[var(--bg-page)] text-[var(--text-primary)]"
       dir="rtl">
@@ -224,7 +231,6 @@ function AppContent({
       <SidebarSanad
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
-        state={state}
         isOpenMobile={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
         onSignOut={onSignOut}
@@ -245,8 +251,6 @@ function AppContent({
         {/* Top Header Bar */}
         <TopHeaderSanad
           currentTab={currentTab}
-          state={state}
-          onUpdateState={handleUpdateState}
           onOpenSearch={() => setIsSearchOpen(true)}
           onToggleMobileSidebar={() => setIsMobileSidebarOpen((prev) => !prev)}
           cloudStatus={cloudStatus}
@@ -261,25 +265,18 @@ function AppContent({
           className="flex-1 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-12">
           {currentTab === "dashboard" && (
             <Dashboard
-              state={state}
               onNavigate={setCurrentTab}
-              onUpdateState={handleUpdateState}
-              onResetWorkspace={resetWorkspace}
             />
           )}
 
           {currentTab === "classes" && (
             <ClassesManager
-              state={state}
-              onUpdateState={handleUpdateState}
               onNavigate={setCurrentTab}
             />
           )}
 
           {currentTab === "attendance" && (
             <AttendanceSanad
-              state={state}
-              onUpdateState={handleUpdateState}
               onNavigateToTimetable={() => setCurrentTab("timetable")}
               onNavigateToSessions={() => setCurrentTab("sessions")}
             />
@@ -287,54 +284,43 @@ function AppContent({
 
           {currentTab === "grades" && (
             <GradesAndEvaluation
-              state={state}
-              onUpdateState={handleUpdateState}
             />
           )}
 
-          {currentTab === "council" && <CouncilAnalysis state={state} />}
+          {currentTab === "council" && <CouncilAnalysis />}
 
           {currentTab === "sessions" && (
-            <SessionCahier state={state} onUpdateState={handleUpdateState} />
+            <SessionCahier />
           )}
 
           {currentTab === "annual_dist" && (
             <AnnualDistribution
-              state={state}
-              onUpdateState={handleUpdateState}
             />
           )}
 
           {currentTab === "curriculum" && (
             <CurriculumView
-              state={state}
-              onUpdateState={handleUpdateState}
               onPrepareUnit={handlePrepareUnit}
             />
           )}
 
           {currentTab === "timetable" && (
-            <TimetableSanad state={state} onUpdateState={handleUpdateState} />
+            <TimetableSanad />
           )}
 
           {currentTab === "settings" && (
             <SettingsSanad
-              state={state}
-              onUpdateState={handleUpdateState}
-              onReplaceState={replaceStateFromBackup}
             />
           )}
 
           {currentTab === "prep" && (
             <LessonPreparation
-              state={state}
-              onUpdateState={handleUpdateState}
               initialUnit={prepUnit}
               initialTab={prepTab}
             />
           )}
 
-          {currentTab === "documents" && <DocumentsExport state={state} />}
+          {currentTab === "documents" && <DocumentsExport />}
         </main>
 
         {/* Footer (Desktop & Tablet) */}
@@ -361,17 +347,13 @@ function AppContent({
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
         onOpenMobileMenu={() => setIsMobileSidebarOpen(true)}
-        state={state}
-        onUpdateState={handleUpdateState}
       />
 
       {/* 4. Global Search Modal (Ctrl+K) */}
       <GlobalSearchModal
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
-        state={state}
         onNavigate={setCurrentTab}
-        onUpdateState={handleUpdateState}
         onPrepareUnit={handlePrepareUnit}
       />
       <OfflineIndicator
@@ -381,6 +363,7 @@ function AppContent({
         onRetry={retrySync}
       />
     </div>
+    </AppStateProvider>
   );
 }
 

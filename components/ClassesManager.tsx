@@ -1,6 +1,7 @@
 'use client';
 
 import { showToast } from '@/components/Toast';
+import { useAppState } from '@/hooks/app-state-context';
 import React, { useEffect, useState, useRef } from 'react';
 import { AppState } from '@/lib/storage';
 import { SanadTab } from './SidebarSanad';
@@ -36,8 +37,6 @@ import {
 } from 'lucide-react';
 
 interface ClassesManagerProps {
-  state: AppState;
-  onUpdateState: (updater: (prev: AppState) => AppState) => void;
   onNavigate?: (tab: SanadTab) => void;
 }
 
@@ -55,10 +54,9 @@ interface StudentMergePair {
 }
 
 export const ClassesManager: React.FC<ClassesManagerProps> = ({
-  state,
-  onUpdateState,
   onNavigate
 }) => {
+  const { state, updateState: onUpdateState } = useAppState();
   const [activeSubTab, setActiveSubTab] = useState<'classes' | 'timetable' | 'students'>('classes');
   const [classSearch, setClassSearch] = useState('');
   const [classLevelFilter, setClassLevelFilter] = useState<GradeLevel | 'ALL'>('ALL');

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useAppState } from '@/hooks/app-state-context';
 import { AppState } from '@/lib/storage';
 import { calculateContinuousEvaluation, calculateStudentAverage } from '@/lib/grade-calculator';
 import { triggerHapticFeedback } from '@/lib/utils';
@@ -240,14 +241,10 @@ function buildDraft(
 }
 
 interface GradesAndEvaluationProps {
-  state: AppState;
-  onUpdateState: (updater: (prev: AppState) => AppState) => void;
 }
 
-export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = ({
-  state,
-  onUpdateState
-}) => {
+export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
+  const { state, updateState: onUpdateState } = useAppState();
   const [selectedClassId, setSelectedClassId] = useState<string>(
     state.activeClassId || (state.classes[0]?.id || '')
   );

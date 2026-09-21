@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useAppState } from '@/hooks/app-state-context';
 import { AppState, exportBackupJSON, isDemoState } from '@/lib/storage';
 import { getLocalDateString } from '@/lib/date-utils';
 import { SanadTab } from './SidebarSanad';
@@ -41,18 +42,13 @@ import {
 } from 'lucide-react';
 
 interface DashboardProps {
-  state: AppState;
   onNavigate: (tab: SanadTab) => void;
-  onUpdateState: (updater: (prev: AppState) => AppState) => void;
-  onResetWorkspace?: () => Promise<void>;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
-  state,
   onNavigate,
-  onUpdateState,
-  onResetWorkspace,
 }) => {
+  const { state, updateState: onUpdateState, resetWorkspace } = useAppState();
   const defaultTasks: UrgentTask[] = [
       { id: 't-1', text: 'تصدير قائمة التلاميذ (2 ع ت) للرقمنة', done: false },
       { id: 't-2', text: 'تجهيز مذكرة الفقه وأصوله (الربا)', done: true },
@@ -244,15 +240,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <div className="h-full rounded-full bg-emerald-200 transition-all" style={{ width: `${(completedOnboardingSteps / onboardingSteps.length) * 100}%` }} />
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              {onResetWorkspace && (
-                <button
+              <button
                   type="button"
                   onClick={() => setResetWorkspaceRequested(true)}
                   className="px-3 py-2 text-xs font-bold text-white/80 hover:text-white underline underline-offset-4 cursor-pointer"
                 >
                   حذف بيانات البداية والبدء من جديد
-                </button>
-              )}
+              </button>
               <button
                 type="button"
                 onClick={() => onUpdateState(prev => ({ ...prev, onboardingDismissed: true }))}
@@ -845,8 +839,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         message="سيتم حذف الأقسام والتلاميذ والدرجات والحضور والجلسات والجدول والملفات الخاصة بهذه المساحة. لا يمكن التراجع عن هذا الإجراء."
         onCancel={() => setResetWorkspaceRequested(false)}
         onConfirm={() => {
-          if (!onResetWorkspace) return;
-          void onResetWorkspace()
+          void resetWorkspace()
             .then(() => {
               setResetWorkspaceRequested(false);
               showToast('تم تنظيف مساحة العمل. يمكنك الآن استيراد بياناتك.', 'success');

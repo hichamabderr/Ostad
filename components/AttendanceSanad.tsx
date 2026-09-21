@@ -1,6 +1,7 @@
 'use client';
 
 import { showToast } from '@/components/Toast';
+import { useAppState } from '@/hooks/app-state-context';
 import React, { useEffect, useState } from 'react';
 import { exportToDoc, triggerHapticFeedback } from '@/lib/utils';
 import { AppState } from '@/lib/storage';
@@ -31,18 +32,15 @@ import {
 } from 'lucide-react';
 
 interface AttendanceSanadProps {
-  state: AppState;
-  onUpdateState: (updater: (prev: AppState) => AppState) => void;
   onNavigateToTimetable?: () => void;
   onNavigateToSessions?: () => void;
 }
 
 export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
-  state,
-  onUpdateState,
   onNavigateToTimetable,
   onNavigateToSessions
 }) => {
+  const { state, updateState: onUpdateState } = useAppState();
   const [selectedClassId, setSelectedClassId] = useState<string>(
     state.activeClassId || (state.classes[0]?.id || '')
   );

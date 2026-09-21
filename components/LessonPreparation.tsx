@@ -1,6 +1,7 @@
 'use client';
 
 import { showToast } from '@/components/Toast';
+import { useAppState } from '@/hooks/app-state-context';
 import { binaryKeyForPdf, deleteBinaryFile, loadBinaryFile, saveBinaryFile } from '@/lib/binary-storage';
 import { deleteTeacherMemorandum, getMemorandumUrl, uploadTeacherMemorandum } from '@/lib/supabase/memoranda-storage';
 import { cancelMemorandaUpload } from '@/lib/supabase/memoranda-outbox';
@@ -36,18 +37,15 @@ import {
 } from 'lucide-react';
 
 interface LessonPreparationProps {
-  state: AppState;
-  onUpdateState: (updater: (prev: AppState) => AppState) => void;
   initialUnit?: CurriculumUnit | null;
   initialTab?: 'card' | 'pdf' | 'bank';
 }
 
 export const LessonPreparation: React.FC<LessonPreparationProps> = ({
-  state,
-  onUpdateState,
   initialUnit,
   initialTab
 }) => {
+  const { state, updateState: onUpdateState } = useAppState();
   const allUnits = useMemo(() => getMergedCurriculumUnits(state.customUnits), [state.customUnits]);
   const [curriculumLoaded, setCurriculumLoaded] = useState(false);
 

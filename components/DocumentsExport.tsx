@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useAppState } from '@/hooks/app-state-context';
 import { AppState } from '@/lib/storage';
 import { SessionRecord } from '@/lib/types';
 import { getMergedCurriculumUnits } from '@/lib/curriculum-data';
@@ -18,13 +19,13 @@ import {
 } from 'lucide-react';
 
 interface DocumentsExportProps {
-  state: AppState;
 }
 
 type DocCategory =
   | 'JOURNAL' | 'CURRICULUM_DISTRIBUTION' | 'GRADES_ROSTER' | 'COUNCIL_FORM' | 'STUDENTS_LIST';
 
-export const DocumentsExport: React.FC<DocumentsExportProps> = ({ state }) => {
+export const DocumentsExport: React.FC<DocumentsExportProps> = () => {
+  const { state, updateState: onUpdateState } = useAppState();
   const [docType, setDocType] = useState<DocCategory>('JOURNAL');
   const [selectedClassId, setSelectedClassId] = useState<string>(
     state.activeClassId || (state.classes[0]?.id || '')

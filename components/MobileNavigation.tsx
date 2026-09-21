@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useAppState } from '@/hooks/app-state-context';
 import { SanadTab } from './SidebarSanad';
 import { AppState } from '@/lib/storage';
 import { Home, Users, ClipboardList, BookOpen, Calendar } from 'lucide-react';
@@ -9,8 +10,6 @@ interface MobileNavigationProps {
   currentTab: SanadTab;
   onSelectTab: (tab: SanadTab) => void;
   onOpenMobileMenu: () => void;
-  state: AppState;
-  onUpdateState: (updater: (prev: AppState) => AppState) => void;
 }
 
 interface NavItem {
@@ -31,6 +30,7 @@ export const MobileNavigation: React.FC<MobileNavigationProps> = ({
   currentTab,
   onSelectTab,
 }) => {
+  const { state, updateState: onUpdateState } = useAppState();
   return (
     <nav
       aria-label="شريط التنقل السفلي للهاتف" className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-[var(--bg-surface)] border-t border-[var(--border-default)] pb-[env(safe-area-inset-bottom)]" >

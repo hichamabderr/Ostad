@@ -1,6 +1,7 @@
 "use client";
 
 import { showToast } from "@/components/Toast";
+import { useAppState } from '@/hooks/app-state-context';
 import {
   AppState,
   DEFAULT_CALENDAR_SETTINGS,
@@ -29,16 +30,10 @@ import { PWAInstallButton } from "./PWAInstallButton";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 interface SettingsSanadProps {
-  state: AppState;
-  onUpdateState: (updater: (prev: AppState) => AppState) => void;
-  onReplaceState?: (state: AppState) => Promise<void>;
 }
 
-export const SettingsSanad: React.FC<SettingsSanadProps> = ({
-  state,
-  onUpdateState,
-  onReplaceState,
-}) => {
+export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
+  const { state, updateState: onUpdateState, replaceStateFromBackup } = useAppState();
   const [calendarSettings, setCalendarSettings] =
     useState<AcademicCalendarSettings>(
       state.calendarSettings || DEFAULT_CALENDAR_SETTINGS,
@@ -163,11 +158,7 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = ({
   const confirmImportJSON = async () => {
     if (!pendingImportedState) return;
     try {
-      if (onReplaceState) {
-        await onReplaceState(pendingImportedState);
-      } else {
-        onUpdateState(() => pendingImportedState);
-      }
+      await replaceStateFromBackup(pendingImportedState);
       const hasPdfReferences = Object.values(pendingImportedState.unitPdfFiles || {})
         .some((file) => Boolean(file.fileStorageKey || file.fileDataUrl));
       setPendingImportedState(null);
@@ -247,7 +238,7 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = ({
       )}
 
       {/* Section 0: Professional Profile */}
-      <ProfessionalProfile state={state} onUpdateState={onUpdateState} />
+      <ProfessionalProfile />
 
       {/* Section 1: السنوات الدراسية والفصول (Screenshot 1) */}
       <div className="bg-white border border-slate-200/90 rounded-xl p-6 shadow-xs space-y-4">

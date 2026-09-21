@@ -1,6 +1,7 @@
 "use client";
 
 import { AppState } from "@/lib/storage";
+import { useAppState } from '@/hooks/app-state-context';
 import { TeacherProfile } from "@/lib/types";
 import { exportToDoc } from "@/lib/utils";
 import {
@@ -24,14 +25,11 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { enqueueAvatarDelete, enqueueAvatarUpload } from '@/lib/supabase/avatar-outbox';
 
 interface ProfessionalProfileProps {
-  state: AppState;
-  onUpdateState: (updater: (prev: AppState) => AppState) => void;
 }
 
 export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
-  state,
-  onUpdateState,
 }) => {
+  const { state, updateState: onUpdateState } = useAppState();
   const [profile, setProfile] = useState<TeacherProfile>({
     ...state.profile,
   });

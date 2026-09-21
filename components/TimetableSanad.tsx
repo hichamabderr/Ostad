@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from'react';
+import { useAppState } from '@/hooks/app-state-context';
 import { v4 as uuid } from 'uuid';
 import { exportToDoc } from'@/lib/utils';
 import { showToast } from '@/components/Toast';
@@ -23,8 +24,6 @@ import {
 } from'lucide-react';
 
 interface TimetableSanadProps {
- state: AppState;
- onUpdateState: (updater: (prev: AppState) => AppState) => void;
 }
 
 const MORNING_HOURS = [
@@ -51,10 +50,8 @@ const DAYS: { dayOfWeek: 0 | 1 | 2 | 3 | 4; name: string }[] = [
  { dayOfWeek: 4, name:'الخميس'}
 ];
 
-export const TimetableSanad: React.FC<TimetableSanadProps> = ({
- state,
- onUpdateState
-}) => {
+export const TimetableSanad: React.FC<TimetableSanadProps> = () => {
+  const { state, updateState: onUpdateState } = useAppState();
  const [isModalOpen, setIsModalOpen] = useState(false);
  const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
  const [deleteConfirmSlotId, setDeleteConfirmSlotId] = useState<string | null>(null);

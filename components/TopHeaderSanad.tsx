@@ -1,6 +1,7 @@
 "use client";
 
 import { AppState } from "@/lib/storage";
+import { useAppState } from '@/hooks/app-state-context';
 import { Calendar, Menu, Search } from "lucide-react";
 import React, { useEffect } from "react";
 import { PWAInstallButton } from "./PWAInstallButton";
@@ -10,8 +11,6 @@ import type { CloudSyncStatus } from "@/hooks/useCloudAppState";
 
 interface TopHeaderSanadProps {
   currentTab: SanadTab;
-  state: AppState;
-  onUpdateState: (updater: (prev: AppState) => AppState) => void;
   onOpenSearch: () => void;
   onToggleMobileSidebar: () => void;
   cloudStatus?: CloudSyncStatus;
@@ -66,14 +65,13 @@ const TAB_TITLES: Record<SanadTab, { title: string; subtitle?: string }> = {
 
 export const TopHeaderSanad: React.FC<TopHeaderSanadProps> = ({
   currentTab,
-  state,
-  onUpdateState,
   onOpenSearch,
   onToggleMobileSidebar,
   cloudStatus = "ready",
   syncError,
   onRetrySync,
 }) => {
+  const { state, updateState: onUpdateState } = useAppState();
   const currentInfo = TAB_TITLES[currentTab] || { title: "معين" };
   const activeClass = selectActiveClass(state);
   const activeClassStudentCount = selectStudentsByClass(state, activeClass?.id ?? null).length;
