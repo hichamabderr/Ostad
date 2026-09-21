@@ -2,10 +2,13 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { User } from '@supabase/supabase-js';
-import { getEmptyState, loadAppState, saveAppState } from '@/lib/storage';
+import { getEmptyState } from '@/lib/storage';
+import { loadAppStateCache, saveAppStateCache } from '@/lib/state-cache';
 import { clearTeacherBinaryFiles } from '@/lib/binary-storage';
+import { clearDashboardTasks } from '@/lib/dashboard-tasks';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
-import { loadCoreState, resetCloudWorkspace, saveCoreState } from '@/lib/supabase/core-sync';
+import { applySyncOutboxEntry, loadCoreState, resetCloudWorkspace } from '@/lib/supabase/core-sync';
+import { flushMemorandaOutbox } from '@/lib/supabase/memoranda-storage';
 import {
   enqueueSyncState,
   getSyncDeviceId,
@@ -13,10 +16,16 @@ import {
   removeSyncOutboxEntry,
   clearSyncOutbox,
 } from '@/lib/sync-outbox';
+import { clearMemorandaOutbox } from '@/lib/supabase/memoranda-outbox';
 import type { AppState } from '@/lib/storage';
 
-type CloudSyncStatus = 'loading' | 'ready' | 'local-only';
-const WORKSPACE_OWNER_KEY = 'sanad:workspace-owner';
+export type CloudSyncStatus =
+  | 'loading'
+  | 'ready'
+  | 'sync-pending'
+  | 'sync-failed'
+  | 'conflict'
+  | 'local-only';
 
 function describeCloudError(error: unknown): Error {
   if (error instanceof Error) return error;
@@ -41,6 +50,50 @@ function isLocalOnlyCloudError(error: unknown): boolean {
   return candidate.code === 'LOCAL_ONLY_CLOUD' || /schema is unavailable|remaining in local-only mode|could not find the table|schema cache/i.test(text);
 }
 
+export function getDeletedRecordIds(previous: AppState, next: AppState): string[] {
+  const collections = [
+    ['class', previous.classes, next.classes],
+    ['student', previous.students, next.students],
+    ['grade', previous.grades, next.grades],
+    ['session', previous.sessions, next.sessions],
+    ['timetable', previous.timetable, next.timetable],
+    ['lessonProgress', previous.lessonProgress, next.lessonProgress],
+    ['customUnit', previous.customUnits, next.customUnits],
+    ['lessonPlan', previous.lessonPlans, next.lessonPlans],
+  ] as const;
+  const deleted = collections.flatMap(([entity, previousRecords, nextRecords]) => {
+    const nextIds = new Set(nextRecords.map((record) => record.id));
+    return previousRecords
+      .filter((record) => !nextIds.has(record.id))
+      .map((record) => `${entity}:${record.id}`);
+  });
+  for (const session of previous.sessions) {
+    if (!next.sessions.some((item) => item.id === session.id)) continue;
+    const nextSession = next.sessions.find((item) => item.id === session.id);
+    if (!nextSession) continue;
+    for (const studentId of Object.keys(session.attendance || {})) {
+      if (!(studentId in (nextSession.attendance || {}))) deleted.push(`attendance:${session.id}:${studentId}`);
+    }
+    const behaviorLists = [
+      ['disruptions', session.disruptions || [], nextSession.disruptions || []],
+      ['unwrittenLessons', session.unwrittenLessons || [], nextSession.unwrittenLessons || []],
+      ['poorParticipation', session.poorParticipation || [], nextSession.poorParticipation || []],
+      ['goodParticipation', session.goodParticipation || [], nextSession.goodParticipation || []],
+    ] as const;
+    for (const [behavior, previousStudents, nextStudents] of behaviorLists) {
+      const nextStudentIds = new Set(nextStudents);
+      for (const studentId of previousStudents) {
+        if (!nextStudentIds.has(studentId)) deleted.push(`behavior:${session.id}:${studentId}:${behavior}`);
+      }
+    }
+  }
+  const nextTaskIds = new Set((next.dashboardTasks || []).map((task) => task.id));
+  for (const task of previous.dashboardTasks || []) {
+    if (!nextTaskIds.has(task.id)) deleted.push(`dashboardTask:${task.id}`);
+  }
+  return Array.from(new Set(deleted));
+}
+
 async function flushSyncOutbox(
   client: ReturnType<typeof createSupabaseBrowserClient>,
   ownerId: string,
@@ -52,6 +105,7 @@ async function flushSyncOutbox(
   syncingRef.current = true;
   let completed = false;
   try {
+    await flushMemorandaOutbox();
     while (true) {
       const entries = await listSyncOutbox(ownerId);
       const entry = entries[0];
@@ -60,11 +114,7 @@ async function flushSyncOutbox(
         return true;
       }
 
-      await saveCoreState(client, ownerId, entry.state, {
-        revision: entry.revision,
-        updatedAt: entry.updatedAt,
-        deviceId: getSyncDeviceId(),
-      });
+      await applySyncOutboxEntry(client, ownerId, entry, getSyncDeviceId());
       await removeSyncOutboxEntry(entry.id);
     }
   } catch (error) {
@@ -85,18 +135,15 @@ async function flushSyncOutbox(
 }
 
 export function useCloudAppState(user: User | null) {
-  const [state, setState] = useState<AppState>(() => {
-    const localState = loadAppState();
-    if (typeof window === 'undefined' || !user) return localState;
-    const cachedOwner = window.localStorage.getItem(WORKSPACE_OWNER_KEY);
-    return cachedOwner && cachedOwner !== user.id ? getEmptyState() : localState;
-  });
+  const [state, setState] = useState<AppState>(() => getEmptyState());
   const isMounted = useSyncExternalStore(
     () => () => {},
     () => true,
     () => false,
   );
   const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus>(() => (user ? 'loading' : 'ready'));
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [localStorageError, setLocalStorageError] = useState<string | null>(null);
   const cloudReady = !user || cloudStatus !== 'loading';
   const syncingRef = useRef(false);
   const pendingSaveTimerRef = useRef<number | null>(null);
@@ -110,14 +157,30 @@ export function useCloudAppState(user: User | null) {
   }, [state]);
 
   useEffect(() => {
+    if (user) return;
+    let active = true;
+    void loadAppStateCache()
+      .then((cachedState) => {
+        if (!active || !cachedState) return;
+        latestStateRef.current = cachedState;
+        setState(cachedState);
+      })
+      .catch((error) => {
+        setLocalStorageError(error instanceof Error ? error.message : 'تعذر تحميل النسخة المحلية.');
+        console.error('Local workspace load failed:', error);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user]);
+
+  useEffect(() => {
     if (!isMounted) return;
     const timer = window.setTimeout(() => {
-      try {
-        saveAppState(state);
-        if (user) window.localStorage.setItem(WORKSPACE_OWNER_KEY, user.id);
-      } catch (error) {
+      void saveAppStateCache(state).catch((error) => {
+        setLocalStorageError(error instanceof Error ? error.message : 'تعذر حفظ النسخة المحلية.');
         console.error('Local state save failed:', error);
-      }
+      });
     }, 400);
     return () => window.clearTimeout(timer);
   }, [isMounted, state, user]);
@@ -142,7 +205,6 @@ export function useCloudAppState(user: User | null) {
         if (!active) return;
         setState(remoteState);
         latestStateRef.current = remoteState;
-        window.localStorage.setItem(WORKSPACE_OWNER_KEY, user.id);
         setCloudStatus('ready');
       })
       .catch((error) => {
@@ -164,49 +226,31 @@ export function useCloudAppState(user: User | null) {
       setState(remoteState);
     };
 
-    const channel = client
-      .channel(`core-state:${user.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'classes', filter: `owner_id=eq.${user.id}` }, () => {
-        void refreshRemoteState()
-          .catch((error) => {
-            if (isLocalOnlyCloudError(error)) {
-              setCloudStatus('local-only');
-              return;
-            }
-            console.error('Realtime classes sync failed:', describeCloudError(error).message);
-          });
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'students', filter: `owner_id=eq.${user.id}` }, () => {
-        void refreshRemoteState()
-          .catch((error) => {
-            if (isLocalOnlyCloudError(error)) {
-              setCloudStatus('local-only');
-              return;
-            }
-            console.error('Realtime students sync failed:', describeCloudError(error).message);
-          });
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'grades', filter: `owner_id=eq.${user.id}` }, () => {
-        void refreshRemoteState()
-          .catch((error) => {
-            if (isLocalOnlyCloudError(error)) {
-              setCloudStatus('local-only');
-              return;
-            }
-            console.error('Realtime grades sync failed:', describeCloudError(error).message);
-          });
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings', filter: `owner_id=eq.${user.id}` }, () => {
-        void refreshRemoteState()
-          .catch((error) => {
-            if (isLocalOnlyCloudError(error)) {
-              setCloudStatus('local-only');
-              return;
-            }
-            console.error('Realtime app settings sync failed:', describeCloudError(error).message);
-          });
-      })
-      .subscribe((status) => {
+    let channel = client.channel(`core-state:${user.id}`);
+    const synchronizedTables = [
+      'profiles', 'classes', 'students', 'grades', 'sessions', 'attendance',
+      'session_behaviors', 'timetable_slots', 'custom_units', 'lesson_progress',
+      'lesson_plans', 'app_settings', 'dashboard_tasks', 'memoranda_files',
+    ] as const;
+    for (const table of synchronizedTables) {
+      channel = channel.on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table,
+        ...(table === 'profiles'
+          ? { filter: `id=eq.${user.id}` }
+          : { filter: `owner_id=eq.${user.id}` }),
+      }, () => {
+        void refreshRemoteState().catch((error) => {
+          if (isLocalOnlyCloudError(error)) {
+            setCloudStatus('local-only');
+            return;
+          }
+          console.error(`Realtime ${table} sync failed:`, describeCloudError(error).message);
+        });
+      });
+    }
+    channel = channel.subscribe((status) => {
         if (status === 'CHANNEL_ERROR') console.error('Realtime subscription failed');
       });
 
@@ -221,7 +265,7 @@ export function useCloudAppState(user: User | null) {
   useEffect(() => {
     if (!isMounted || !cloudReady) return;
     if (!user) return;
-    if (cloudStatus === 'local-only') return;
+    if (cloudStatus === 'local-only' || cloudStatus === 'sync-failed' || cloudStatus === 'conflict') return;
     revisionRef.current += 1;
     updatedAtRef.current = new Date().toISOString();
     const revision = revisionRef.current;
@@ -241,10 +285,15 @@ export function useCloudAppState(user: User | null) {
             setCloudStatus('local-only');
             return;
           }
-          console.error('Cloud state save failed:', describeCloudError(error).message);
+          const message = describeCloudError(error).message;
+          setSyncError(message);
+          setCloudStatus(error instanceof Error && error.name === 'SyncConflictError' ? 'conflict' : 'sync-failed');
+          console.error('Cloud state save failed:', message);
         }))
         .then(async (flushed) => {
           if (!flushed || (await listSyncOutbox(user.id)).length > 0) return;
+          setSyncError(null);
+          setCloudStatus('ready');
           setState((previous) => (
             previous.deletedRecordIds?.length
               ? {
@@ -299,38 +348,48 @@ export function useCloudAppState(user: User | null) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
+  const retrySync = async (): Promise<void> => {
+    if (!user || syncingRef.current) return;
+    const client = createSupabaseBrowserClient();
+    if (!client) {
+      setCloudStatus('local-only');
+      return;
+    }
+    setCloudStatus('sync-pending');
+    setSyncError(null);
+    const flushed = await flushSyncOutbox(client, user.id, syncingRef, (error) => {
+      const message = describeCloudError(error).message;
+      setSyncError(message);
+      setCloudStatus(error instanceof Error && error.name === 'SyncConflictError' ? 'conflict' : 'sync-failed');
+      console.error('Cloud sync retry failed:', message);
+    });
+    if (!flushed || (await listSyncOutbox(user.id)).length > 0) return;
+    try {
+      const remoteState = await loadCoreState(client, latestStateRef.current);
+      latestStateRef.current = remoteState;
+      setState(remoteState);
+      setCloudStatus('ready');
+    } catch (error) {
+      const message = describeCloudError(error).message;
+      setSyncError(message);
+      setCloudStatus('sync-failed');
+      console.error('Cloud sync retry failed:', message);
+    }
+  };
+
   const handleUpdateState = (updater: (previous: AppState) => AppState) => {
+    if (user && cloudStatus === 'ready') setCloudStatus('sync-pending');
     setState((previous) => {
       const next = updater(previous);
       
-      const prevIds = new Set([
-        ...previous.classes.map(c => c.id),
-        ...previous.students.map(s => s.id),
-        ...previous.grades.map(g => g.id),
-        ...previous.sessions.map(s => s.id),
-        ...previous.timetable.map(t => t.id),
-        ...previous.lessonProgress.map(progress => progress.id),
-        ...previous.customUnits.map(unit => unit.id),
-        ...previous.lessonPlans.map(plan => plan.id),
-      ]);
-      const nextIds = new Set([
-        ...next.classes.map(c => c.id),
-        ...next.students.map(s => s.id),
-        ...next.grades.map(g => g.id),
-        ...next.sessions.map(s => s.id),
-        ...next.timetable.map(t => t.id),
-        ...next.lessonProgress.map(progress => progress.id),
-        ...next.customUnits.map(unit => unit.id),
-        ...next.lessonPlans.map(plan => plan.id),
-      ]);
-      const newlyDeleted = [...prevIds].filter(id => !nextIds.has(id));
+      const deletedRecordIds = getDeletedRecordIds(previous, next);
       
-      if (newlyDeleted.length > 0) {
+      if (deletedRecordIds.length > 0) {
         return {
           ...next,
           deletedRecordIds: Array.from(new Set([
             ...(previous.deletedRecordIds || []),
-            ...newlyDeleted,
+            ...deletedRecordIds,
           ])),
         };
       }
@@ -351,13 +410,18 @@ export function useCloudAppState(user: User | null) {
     if (user) await clearSyncOutbox(user.id);
     const normalizedState = {
       ...nextState,
+      deletedRecordIds: Array.from(new Set([
+        ...(nextState.deletedRecordIds || []),
+        ...getDeletedRecordIds(latestStateRef.current, nextState),
+      ])),
       activeClassId: nextState.classes.some((item) => item.id === nextState.activeClassId)
         ? nextState.activeClassId
         : nextState.classes[0]?.id || null,
     };
     setState(normalizedState);
     latestStateRef.current = normalizedState;
-    saveAppState(normalizedState);
+    await saveAppStateCache(normalizedState);
+    setLocalStorageError(null);
   };
 
   const resetWorkspace = async (): Promise<void> => {
@@ -372,15 +436,12 @@ export function useCloudAppState(user: User | null) {
       await resetCloudWorkspace(client, user.id);
       await clearSyncOutbox(user.id);
     }
+    await clearMemorandaOutbox();
     await clearTeacherBinaryFiles();
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('sanad_urgent_tasks');
-    }
+    await clearDashboardTasks();
     const emptyState = getEmptyState();
-    saveAppState(emptyState);
-    if (user && typeof window !== 'undefined') {
-      window.localStorage.setItem(WORKSPACE_OWNER_KEY, user.id);
-    }
+    await saveAppStateCache(emptyState);
+    setLocalStorageError(null);
     setState(emptyState);
     latestStateRef.current = emptyState;
     revisionRef.current = 0;
@@ -394,5 +455,8 @@ export function useCloudAppState(user: User | null) {
     isMounted,
     cloudReady,
     cloudStatus,
+    syncError,
+    localStorageError,
+    retrySync,
   };
 }

@@ -1,13 +1,16 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
+type SimpleTable<Row> = { Row: Row; Insert: Partial<Row>; Update: Partial<Row>; Relationships: [] };
+
 export interface Database {
   public: {
     Tables: {
       memoranda_files: {
         Row: {
           id: string;
+          workspace_id: string;
           owner_id: string | null;
-          unit_id: string;
+          unit_id: string | null;
           file_name: string;
           storage_path: string;
           file_size: number;
@@ -26,9 +29,11 @@ export interface Database {
       app_settings: {
         Row: {
           id: string;
+          workspace_id: string;
           owner_id: string;
           settings: Json;
           revision: number;
+          updated_by: string | null;
           updated_by_device: string | null;
           created_at: string;
           updated_at: string;
@@ -75,9 +80,24 @@ export interface Database {
         Row: {
           id: string;
           full_name: string | null;
+          title: string | null;
           avatar_url: string | null;
           school_name: string | null;
+          state_name: string | null;
+          academic_year: string | null;
+          hijri_year: string | null;
+          first_name_ar: string | null;
+          last_name_ar: string | null;
+          first_name_en: string | null;
+          last_name_en: string | null;
+          email: string | null;
           phone: string | null;
+          first_appointment_date: string | null;
+          experience_years: number | null;
+          birth_date: string | null;
+          birth_place: string | null;
+          family_status: string | null;
+          gender: 'M' | 'F' | null;
           created_at: string;
           updated_at: string;
         };
@@ -175,7 +195,16 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['grades']['Insert']>;
         Relationships: [];
       };
-    };
+          sessions: SimpleTable<{ id: string; workspace_id: string; owner_id: string; class_id: string; session_date: string; start_time: string | null; end_time: string | null; trimester: number | null; topic: string | null; teacher_notes: string | null; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
+      attendance: SimpleTable<{ id: string; workspace_id: string; owner_id: string; session_id: string; student_id: string; status: string; note: string | null; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
+      session_behaviors: SimpleTable<{ id: string; workspace_id: string; owner_id: string; session_id: string; student_id: string; behavior: string; rating: number | null; note: string | null; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
+      timetable_slots: SimpleTable<{ id: string; workspace_id: string; owner_id: string; class_id: string; weekday: number; start_time: string; end_time: string; room: string | null; notes: string | null; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
+      curriculum_units: SimpleTable<{ id: string; workspace_id: string; owner_id: string; title: string; code: string | null; level: string | null; position: number; description: string | null; metadata: Json; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
+      custom_units: SimpleTable<{ id: string; workspace_id: string; owner_id: string; title: string; level: string | null; position: number; metadata: Json; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
+      dashboard_tasks: SimpleTable<{ id: string; workspace_id: string; owner_id: string; task_id: string; text: string; done: boolean; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
+      lesson_progress: SimpleTable<{ id: string; workspace_id: string; owner_id: string; class_id: string; unit_id: string | null; unit_key: string | null; status: string; completed_at: string | null; notes: string | null; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
+      lesson_plans: SimpleTable<{ id: string; workspace_id: string; owner_id: string; class_id: string | null; unit_id: string | null; title: string; content: Json; lesson_date: string | null; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
+};
     Views: Record<string, never>;
     Functions: {
       reset_workspace: {

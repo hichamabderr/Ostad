@@ -8,8 +8,12 @@
 
 ### سياق واحد، لا تنقل زائد
 
-الشاشة تعمل حول قسم نشط وفصل نشط. ينتقل الأستاذ بين المهام من شريط واحد، مع
-حفظ `tab` و`class` في عنوان URL ليكون الرابط قابلاً للفتح أو الإشارة المرجعية.
+الشاشة تعمل حول قسم نشط وفصل نشط. ينتقل الأستاذ بين المهام من شريط واحد، ولكل
+وظيفة مسار مستقل قابل للفتح والإشارة المرجعية (`/dashboard` و`/classes`
+و`/attendance` و`/grades` و`/council` و`/sessions` و`/annual-distribution`
+و`/curriculum` و`/timetable` و`/lesson-preparation` و`/documents`
+و`/settings`). لا تستخدم `?tab`؛ يحدد المسار الشاشة، ويمكن حفظ سياق القسم
+داخل الحالة عند الحاجة.
 
 ### Mobile-first Native
 
@@ -28,6 +32,9 @@ flowchart TD
 - لا نضع عنوان صفحة ثانياً داخل المحتوى؛ العنوان الرسمي في `TopHeaderSanad`.
 - الأهداف اللمسية كبيرة، والنصوص قصيرة، والجداول قابلة للتمرير الأفقي عند
   ضيق الشاشة.
+- `app/layout.tsx` ومسارات العرض الخفيفة Server Components افتراضياً؛ الحاوية
+  التفاعلية والمكونات التي تستخدم hooks أو أحداث المتصفح Client Components.
+  لا تعبر كائنات المتصفح أو hooks حدود RSC، وتمّرر الحالة والأفعال عبر Props.
 
 ### حالات واضحة وآمنة
 
@@ -63,26 +70,29 @@ flowchart TD
 - **الحقول:** تسمية ظاهرة، قيمة قابلة للقراءة، وخطأ قريب من الحقل.
 - **الأيقونات:** `lucide-react` مع نص أو `aria-label`، لا تعتمد الأيقونة وحدها
   في الإجراءات المهمة.
+- لا تستخدم `dark:` أو ألوان Hex مضمّنة؛ استعمل متغيرات `globals.css` فقط.
+- لا تستخدم عناوين `h2` مكررة داخل المحتوى؛ يكفي عنوان `TopHeaderSanad` وشريط
+  الأدوات العملي. استخدم `showToast()` للإشعارات و`ConfirmDialog` للتأكيدات.
 
-## 3. خريطة التبويبات
+## 3. خريطة المسارات والوظائف
 
 ```mermaid
 flowchart LR
-    Dashboard[لوحة التحكم] --> Classes[الأقسام والتلاميذ]
-    Classes --> Attendance[الحضور]
-    Attendance --> Grades[النقاط]
-    Grades --> Council[المجالس]
-    Timetable[التوقيت] --> Sessions[دفتر النصوص]
-    Curriculum[المنهاج] --> Annual[التوزيع السنوي]
-    Curriculum --> Prep[المذكرات والتحضير]
-    Sessions --> Docs[الوثائق]
+    Dashboard[لوحة التحكم /dashboard] --> Classes[الأقسام /classes]
+    Classes --> Attendance[الحضور /attendance]
+    Attendance --> Grades[النقاط /grades]
+    Grades --> Council[المجالس /council]
+    Timetable[التوقيت /timetable] --> Sessions[دفتر النصوص /sessions]
+    Curriculum[المنهاج /curriculum] --> Annual[التوزيع السنوي /annual-distribution]
+    Curriculum --> Prep[المذكرات والتحضير /lesson-preparation]
+    Sessions --> Docs[الوثائق /documents]
     Grades --> Docs
     Council --> Docs
-    Settings[الإعدادات] --> Backup[نسخة JSON/ZIP]
+    Settings[الإعدادات /settings] --> Backup[نسخة JSON/ZIP]
 ```
 
 ترتيب الاستخدام المقصود: يجهز الأستاذ الأقسام والتوقيت، يسجل الحصص والحضور،
-يدخل التقييم، يراجع المؤشرات، ثم يطبع الوثائق. يمكن فتح أي تبويب مباشرة من
+يدخل التقييم، يراجع المؤشرات، ثم يطبع الوثائق. يمكن فتح أي مسار مباشرة من
 التنقل أو البحث الشامل.
 
 ## 4. التخزين والعمل دون اتصال
@@ -91,7 +101,7 @@ flowchart LR
 sequenceDiagram
     participant U as الأستاذ
     participant UI as المكونات
-    participant L as localStorage
+    participant L as IndexedDB cache
     participant O as IndexedDB outbox
     participant S as Supabase
 
@@ -106,9 +116,29 @@ sequenceDiagram
     end
 ```
 
-بيانات الحالة النصية في `localStorage`، أما PDF وطابور المزامنة ففي IndexedDB.
-عند عودة الشبكة يعاد إرسال العناصر غير المرسلة. النسخ الاحتياطية تبقى المسار
-الصريح لنقل البيانات بين الأجهزة أو المتصفحات.
+تُحفظ نسخة الحالة المحلية المعيارية للنسخة الجديدة في IndexedDB cache (دون
+ترحيل لقطات `localStorage` السابقة)، كما تحفظ ملفات PDF وطابور المزامنة في IndexedDB. عند عودة
+الشبكة يعاد إرسال revisions غير المرسلة بالترتيب. الحالات المرئية هي
+`loading` و`ready` و`sync-pending` و`sync-failed` و`conflict` و`local-only`؛
+ويظهر فشل السحابة كاستمرار محلي لا كفقدان
+للبيانات. النسخ الاحتياطية تبقى المسار الصريح لنقل البيانات بين الأجهزة أو
+المتصفحات.
+
+### Supabase العلائقي وإعادة الضبط
+
+المصدر السحابي ليس snapshot واحداً: جداول `profiles` و`app_settings` و
+`classes` و`students` و`grades` و`sessions` و`attendance` و
+`session_behaviors` و`timetable_slots` و`lesson_progress` و`lesson_plans` و
+`custom_units` وملفات المذكرات مترابطة بمفاتيح خارجية، وكلها معزولة بـRLS.
+تستخدم `revision` و`tombstones` وسجل `sync_conflicts` مع رفض صريح للتحديثات
+القديمة، وتدعم Realtime التحديثات الخارجية.
+جميع الكيانات المملوكة للمستخدم مشتركة في `supabase_realtime`؛ لا تُعد أي
+ميزة مكتملة ما لم تُثبت مزامنتها وحذفها وإعادة محاولتها مع Supabase.
+
+البيانات التجريبية المضمّنة للعرض ليست بيانات مستخدم ولا تُرحّل إلى السحابة؛
+عند workspace سحابية فارغة تبدأ الحالة فارغة. أما `reset_workspace` فهي عملية
+تجريبية destructive تحذف بيانات المستخدم وملفاته نهائياً، ولا تُنفّذ إلا بعد
+نسخة احتياطية وتأكيد صريح عبر `ConfirmDialog`.
 
 ## 5. الوصول والطباعة
 
@@ -125,5 +155,5 @@ sequenceDiagram
 2. استخدم `getWeeklyHours()` عند عرض أو حساب ساعات المنهاج.
 3. لا تغيّر محللات الرقمنة أو الممتاز دون اختبار ملفات حقيقية ونسخة احتياطية.
 4. استخدم `exportToDoc` أو المصدر القائم لتصدير Word بدل تكرار منطق HTML.
-5. أضف المكون إلى التبويب والحالة والتحميل والإشعارات معاً عند إنشاء وظيفة.
+5. أضف الوظيفة إلى مسارها والحالة والتحميل والإشعارات معاً عند إنشاء وظيفة.
 6. تحقق من RTL، والهاتف، والطباعة، ووضع عدم الاتصال قبل اعتماد تغيير بصري.

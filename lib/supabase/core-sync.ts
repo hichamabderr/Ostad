@@ -1,393 +1,303 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { getEmptyState, isDemoState } from '@/lib/storage';
-import type { AppState } from '@/lib/storage';
-import type { ClassRoom, Student, StudentGrade } from '@/lib/types';
+import { getEmptyState, isDemoState, type AppState } from '@/lib/storage';
+import type { ClassRoom, SessionRecord, Student, StudentGrade, TimetableSlot } from '@/lib/types';
 import type { Database } from './database.types';
-import { stableUuid } from './migrate-local-state';
 import { getWeeklyHours } from '@/lib/curriculum-data';
+import { enqueueSyncState, type SyncEntity, type SyncOperation, type SyncOutboxEntry } from '@/lib/sync-outbox';
+import { stableUuid } from './migrate-local-state';
 
 type Client = SupabaseClient<Database>;
-
-export async function resetCloudWorkspace(client: Client, ownerId: string): Promise<void> {
-  const files = await client
-    .from('memoranda_files')
-    .select('storage_path')
-    .eq('owner_id', ownerId);
-  if (files.error) throw files.error;
-
-  const removed = await client.rpc('reset_workspace');
-  if (removed.error) throw removed.error;
-
-  const paths = files.data.map((file) => file.storage_path);
-  if (paths.length > 0) {
-    const storageResult = await client.storage.from('memoranda').remove(paths);
-    if (storageResult.error) throw storageResult.error;
+type AnyClient = { from(table: string): any; auth: any; rpc: any };
+export interface SyncMetadata { revision: number; updatedAt: string; deviceId: string; }
+export class SyncConflictError extends Error {
+  code = 'SYNC_CONFLICT';
+  constructor(public entity: SyncEntity, public recordId: string, public remoteRevision: number, public localRevision: number) {
+    super(`Sync conflict for ${entity}/${recordId}: remote revision ${remoteRevision} is newer`);
+    this.name = 'SyncConflictError';
   }
 }
 
-export interface SyncMetadata {
-  revision: number;
-  updatedAt: string;
-  deviceId: string;
+function schemaError(error: unknown): boolean {
+  const e = error as { code?: string; message?: string; details?: string; hint?: string } | null;
+  const text = [e?.message, e?.details, e?.hint].filter(Boolean).join(' ');
+  return e?.code === 'PGRST205' || /schema cache|could not find the table|relation .* does not exist/i.test(text);
+}
+function localOnly(): Error { return Object.assign(new Error('Supabase schema is unavailable. Remaining in local-only mode.'), { code: 'LOCAL_ONLY_CLOUD' }); }
+const tables: Record<SyncEntity, string> = {
+  class: 'classes', student: 'students', grade: 'grades', session: 'sessions',
+  timetable: 'timetable_slots', lessonProgress: 'lesson_progress', customUnit: 'custom_units',
+  lessonPlan: 'lesson_plans', attendance: 'attendance', behavior: 'session_behaviors',
+  dashboardTask: 'dashboard_tasks',
+  profile: 'profiles', settings: 'app_settings',
+};
+const isObject = (v: unknown): v is Record<string, any> => Boolean(v && typeof v === 'object' && !Array.isArray(v));
+const isUuid = (value: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+export function getCloudRecordId(ownerId: string, entity: SyncEntity, localId: string): string {
+  return isUuid(localId) ? localId : stableUuid(`${entity}:${ownerId}:${localId}`);
+}
+async function workspaceId(client: AnyClient, ownerId: string): Promise<string> {
+  const result = await client.rpc('default_workspace_id');
+  if (result.error) throw result.error;
+  if (typeof result.data !== 'string' || !isUuid(result.data)) {
+    throw new Error('Supabase workspace is unavailable for this user');
+  }
+  return result.data;
 }
 
-type SyncEntityType = 'class' | 'student' | 'grade' | 'session' | 'timetable' | 'lessonProgress' | 'customUnit' | 'lessonPlan';
-
-function isSchemaUnavailableError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false;
-
-  const candidate = error as { code?: string; message?: string; details?: string; hint?: string };
-  const text = [candidate.message, candidate.details, candidate.hint]
-    .filter((part): part is string => Boolean(part))
-    .join(' ')
-    .toLowerCase();
-
-  return candidate.code === 'PGRST205' || /schema cache|could not find the table|relation .* does not exist/i.test(text);
+function toRow(entity: SyncEntity, payload: any, ownerId: string, workspace: string, metadata: SyncMetadata): Record<string, any> {
+  const id = getCloudRecordId(ownerId, entity, payload.id);
+  const classId = (value: string | undefined) => value ? getCloudRecordId(ownerId, 'class', value) : null;
+  const studentId = (value: string | undefined) => value ? getCloudRecordId(ownerId, 'student', value) : null;
+  const sessionId = (value: string | undefined) => value ? getCloudRecordId(ownerId, 'session', value) : null;
+  const unitId = (value: string | undefined) => value ? getCloudRecordId(ownerId, 'customUnit', value) : null;
+  const base = { id, owner_id: ownerId, workspace_id: workspace, revision: metadata.revision, sync_revision: metadata.revision, updated_by: ownerId, sync_device_id: metadata.deviceId, sync_updated_at: metadata.updatedAt };
+  switch (entity) {
+    case 'class': return { ...base, name: payload.name.trim(), level: payload.level, section: payload.stream || null, weekly_hours: getWeeklyHours(payload.level), academic_year: null, notes: null };
+    case 'student': return { ...base, class_id: classId(payload.classId), full_name: payload.fullName.trim(), number_in_list: payload.numberInList, reg_number: payload.regNumber || null, registration_number: payload.registrationNumber || null, is_repeater: payload.isRepeater ?? false, guardian_phone: payload.guardianPhone || null, gender: payload.gender === 'M' ? 'male' : payload.gender === 'F' ? 'female' : null, birth_date: payload.birthDate || null, notes: payload.notes || null };
+    case 'grade': return { ...base, student_id: studentId(payload.studentId), class_id: classId(payload.classId), trimester: payload.trimester, continuous_eval: payload.continuousEval, behavior_score: payload.behaviorScore ?? null, attendance_score: payload.attendanceScore ?? null, notebook_score: payload.notebookScore ?? null, participation_score: payload.participationScore ?? null, quiz: payload.quiz, exam: payload.exam, calculated_average: payload.calculatedAverage ?? null, estimation: payload.estimation || null, guidance: payload.guidance || null, remarks: payload.remarks || null, follow_up_notes: payload.followUpNotes || null };
+    case 'timetable': return { ...base, class_id: classId(payload.classId), weekday: payload.dayOfWeek, start_time: payload.startTime, end_time: payload.endTime, room: payload.room || null, notes: payload.type || null };
+    case 'lessonProgress': return { ...base, class_id: classId(payload.classId), unit_id: null, unit_key: payload.unitId || null, status: payload.status, completed_at: payload.completedAt || null, notes: JSON.stringify(payload) };
+    case 'session': return { ...base, class_id: classId(payload.classId), session_date: payload.date, start_time: payload.startTime, end_time: payload.endTime, topic: payload.customTopic || null, teacher_notes: JSON.stringify(payload) };
+    case 'customUnit': return { ...base, title: payload.title, level: payload.level, position: payload.unitNumber || 0, metadata: payload };
+    case 'lessonPlan': return { ...base, class_id: classId(payload.classId), unit_id: null, title: payload.title || '', content: payload };
+    case 'attendance': return {
+      ...base,
+      session_id: sessionId(payload.sessionId),
+      student_id: studentId(payload.studentId),
+      status: payload.status === 'ABSENT' ? 'absent' : payload.status === 'LATE' ? 'late' : payload.status === 'EXCUSED' ? 'excused' : 'present',
+      note: payload.note || null,
+    };
+    case 'behavior': return {
+      ...base,
+      session_id: sessionId(payload.sessionId),
+      student_id: studentId(payload.studentId),
+      behavior: payload.behavior,
+      rating: null,
+      note: null,
+    };
+    case 'dashboardTask': return {
+      ...base,
+      task_id: payload.id,
+      text: payload.text,
+      done: Boolean(payload.done),
+    };
+    default: return payload;
+  }
 }
 
-function createLocalOnlyCloudError(): Error {
-  const error = new Error('Supabase schema is unavailable. Remaining in local-only mode.');
-  return Object.assign(error, { code: 'LOCAL_ONLY_CLOUD' });
-}
-
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-}
-
-function cloudId(ownerId: string, kind: string, localId: string): string {
-  return isUuid(localId) ? localId : stableUuid(`${kind}:${ownerId}:${localId}`);
-}
-
-function toClass(row: Database['public']['Tables']['classes']['Row']): ClassRoom {
-  return {
-    id: row.id,
-    name: row.name,
-    level: (row.level as ClassRoom['level']) || '1AS_SCIENCE',
-    stream: row.section || '',
-  };
-}
-
-function toStudent(row: Database['public']['Tables']['students']['Row']): Student {
-  return {
-    id: row.id,
-    classId: row.class_id,
-    numberInList: row.number_in_list,
-    fullName: row.full_name,
-    regNumber: row.reg_number || undefined,
-    registrationNumber: row.registration_number || undefined,
-    gender: row.gender === 'male' ? 'M' : row.gender === 'female' ? 'F' : undefined,
-    birthDate: row.birth_date || undefined,
-    notes: row.notes || undefined,
-    isRepeater: row.is_repeater,
-    guardianPhone: row.guardian_phone || undefined,
-  };
-}
-
-function toGrade(row: Database['public']['Tables']['grades']['Row']): StudentGrade {
-  return {
-    id: row.id,
-    studentId: row.student_id,
-    classId: row.class_id,
-    trimester: row.trimester,
-    continuousEval: row.continuous_eval,
-    behaviorScore: row.behavior_score,
-    attendanceScore: row.attendance_score,
-    notebookScore: row.notebook_score,
-    participationScore: row.participation_score,
-    quiz: row.quiz,
-    exam: row.exam,
-    calculatedAverage: row.calculated_average,
-    estimation: row.estimation || undefined,
-    guidance: row.guidance || undefined,
-    remarks: row.remarks || undefined,
-    followUpNotes: row.follow_up_notes || undefined,
-  };
+function fromRow(entity: SyncEntity, row: any): any {
+  if (entity === 'class') return { id: row.id, name: row.name, level: row.level || '1AS_SCIENCE', stream: row.section || '' } satisfies ClassRoom;
+  if (entity === 'student') return { id: row.id, classId: row.class_id, numberInList: row.number_in_list, fullName: row.full_name, regNumber: row.reg_number || undefined, registrationNumber: row.registration_number || undefined, gender: row.gender === 'male' ? 'M' : row.gender === 'female' ? 'F' : undefined, birthDate: row.birth_date || undefined, notes: row.notes || undefined, isRepeater: row.is_repeater, guardianPhone: row.guardian_phone || undefined } satisfies Student;
+  if (entity === 'grade') return { id: row.id, studentId: row.student_id, classId: row.class_id, trimester: row.trimester, continuousEval: row.continuous_eval, behaviorScore: row.behavior_score, attendanceScore: row.attendance_score, notebookScore: row.notebook_score, participationScore: row.participation_score, quiz: row.quiz, exam: row.exam, calculatedAverage: row.calculated_average, estimation: row.estimation || undefined, guidance: row.guidance || undefined, remarks: row.remarks || undefined, followUpNotes: row.follow_up_notes || undefined } satisfies StudentGrade;
+  if (entity === 'session' || entity === 'lessonProgress') {
+    const encoded = row.teacher_notes || row.notes;
+    if (typeof encoded === 'string') {
+      try {
+        const parsed = JSON.parse(encoded);
+        if (isObject(parsed)) {
+          if (entity === 'session') {
+            return {
+              ...parsed,
+              id: row.id,
+              classId: row.class_id,
+              date: row.session_date,
+              startTime: row.start_time || parsed.startTime || '',
+              endTime: row.end_time || parsed.endTime || '',
+            };
+          }
+          return parsed;
+        }
+      } catch { /* retain compatibility with rows written by older clients */ }
+    }
+  }
+  if (['customUnit', 'lessonPlan'].includes(entity) && isObject(row.metadata || row.content)) return row.metadata || row.content;
+  if (entity === 'timetable') return { id: row.id, classId: row.class_id, dayOfWeek: row.weekday, startTime: row.start_time, endTime: row.end_time, room: row.room || undefined, type: row.notes || undefined } satisfies TimetableSlot;
+  return null;
 }
 
 export async function loadCoreState(client: Client, localState: AppState): Promise<AppState> {
   try {
-    const [classesResult, studentsResult, gradesResult, settingsResult, tombstonesResult] = await Promise.all([
-      client.from('classes').select('*').order('name'),
-      client.from('students').select('*').order('class_id').order('number_in_list'),
-      client.from('grades').select('*'),
-      client.from('app_settings').select('settings').maybeSingle(),
-      client.from('sync_tombstones').select('entity_type,entity_id'),
-    ]);
-    if (classesResult.error) throw classesResult.error;
-    if (studentsResult.error) throw studentsResult.error;
-    if (gradesResult.error) throw gradesResult.error;
-    if (settingsResult.error) throw settingsResult.error;
-    if (tombstonesResult.error) throw tombstonesResult.error;
-
-    const tombstones = new Set(
-      tombstonesResult.data.map((item) => `${item.entity_type}:${item.entity_id}`),
+    const c = client as AnyClient;
+    const userId = (await c.auth.getUser()).data.user?.id;
+    if (!userId) return localState;
+    const results = await Promise.all(Object.entries(tables).map(async ([entity, table]) => {
+      const query = c.from(table).select('*');
+      const result = entity === 'profile' ? await query.eq('id', userId) : await query.eq('owner_id', userId);
+      return [entity, result] as const;
+    }));
+    const memorandaResult = await c.from('memoranda_files').select('unit_id,file_name,storage_path,created_at,updated_at,is_bundled,deleted_at').eq('owner_id', userId).eq('is_bundled', false).is('deleted_at', null);
+    if (memorandaResult.error) throw memorandaResult.error;
+    for (const [, result] of results) if (result.error) throw result.error;
+    const by = (entity: SyncEntity) => (results.find(([key]) => key === entity)?.[1].data || []);
+    const classes = by('class').map((r: any) => fromRow('class', r));
+    if (!classes.length && !by('student').length && !by('grade').length && isDemoState(localState)) return getEmptyState();
+    const profile = by('profile')[0];
+    const settings = by('settings')[0]?.settings;
+    const supplementary = isObject(settings) ? settings : {};
+    const dashboardTasks = by('dashboardTask').map((row: any) => ({
+      id: row.task_id,
+      text: row.text,
+      done: Boolean(row.done),
+    }));
+    const unitPdfFiles = Object.fromEntries(
+      (memorandaResult.data || [])
+        .filter((row: any) => typeof row.unit_id === 'string' && typeof row.storage_path === 'string')
+        .map((row: any) => [row.unit_id, {
+          fileName: row.file_name,
+          cloudStoragePath: row.storage_path,
+          uploadedAt: (row.updated_at || row.created_at || new Date().toISOString()).slice(0, 10),
+        }]),
     );
-
-    if (classesResult.data.length === 0 && studentsResult.data.length === 0 && gradesResult.data.length === 0) {
-      // Demo data is a presentation seed, never a user's workspace.
-      return isDemoState(localState) ? getEmptyState() : localState;
+    const sessions: SessionRecord[] = by('session')
+      .map((r: any) => fromRow('session', r))
+      .filter(Boolean);
+    const sessionsById = new Map(sessions.map((session) => [session.id, session]));
+    for (const session of sessions) {
+      session.attendance = {};
+      session.disruptions = [];
+      session.unwrittenLessons = [];
+      session.poorParticipation = [];
+      session.goodParticipation = [];
     }
-
-    const classes = classesResult.data.map(toClass);
-    const classIds = new Set(classes.map((item) => item.id));
-    const students = studentsResult.data.filter((item) => classIds.has(item.class_id)).map(toStudent);
-    const studentIds = new Set(students.map((item) => item.id));
-    const grades = gradesResult.data
-      .filter((item) => classIds.has(item.class_id) && studentIds.has(item.student_id))
-      .map(toGrade);
-
-    const settings = settingsResult.data?.settings;
-    const supplementary = settings && typeof settings === 'object' && !Array.isArray(settings)
-      ? settings as Partial<AppState>
-      : {};
-    const filterDeleted = <T extends { id: string }>(items: T[], entityType: SyncEntityType) =>
-      items.filter((item) => !tombstones.has(`${entityType}:${item.id}`));
-
-    return {
-      ...localState,
-      ...supplementary,
-      classes,
-      students,
-      grades,
-      sessions: filterDeleted(supplementary.sessions || [], 'session'),
-      timetable: filterDeleted(supplementary.timetable || [], 'timetable'),
-      lessonProgress: filterDeleted(supplementary.lessonProgress || [], 'lessonProgress'),
-      customUnits: filterDeleted(supplementary.customUnits || [], 'customUnit'),
-      lessonPlans: filterDeleted(supplementary.lessonPlans || [], 'lessonPlan'),
-      activeClassId: classes.some((item) => item.id === localState.activeClassId)
-        ? localState.activeClassId
-        : classes[0]?.id || null,
+    for (const row of by('attendance')) {
+      const session = sessionsById.get(row.session_id);
+      if (session) {
+        session.attendance[row.student_id] = row.status === 'absent'
+          ? 'ABSENT'
+          : row.status === 'late'
+            ? 'LATE'
+            : row.status === 'excused'
+              ? 'EXCUSED'
+              : 'PRESENT';
+      }
+    }
+    const behaviorTargets: Record<string, 'disruptions' | 'unwrittenLessons' | 'poorParticipation' | 'goodParticipation'> = {
+      disruptions: 'disruptions',
+      unwrittenLessons: 'unwrittenLessons',
+      poorParticipation: 'poorParticipation',
+      goodParticipation: 'goodParticipation',
     };
-  } catch (error) {
-    if (isSchemaUnavailableError(error)) {
-      throw createLocalOnlyCloudError();
+    for (const row of by('behavior')) {
+      const session = sessionsById.get(row.session_id);
+      const target = behaviorTargets[row.behavior];
+      if (session && target) {
+        (session[target] ??= []).push(row.student_id);
+      }
     }
+    return { ...localState, ...supplementary, profile: profile ? {
+        ...localState.profile,
+        name: profile.full_name || localState.profile.name,
+        title: profile.title || localState.profile.title,
+        schoolName: profile.school_name || localState.profile.schoolName,
+        stateName: profile.state_name || localState.profile.stateName,
+        academicYear: profile.academic_year || localState.profile.academicYear,
+        hijriYear: profile.hijri_year || localState.profile.hijriYear,
+        firstNameAr: profile.first_name_ar || undefined,
+        lastNameAr: profile.last_name_ar || undefined,
+        firstNameEn: profile.first_name_en || undefined,
+        lastNameEn: profile.last_name_en || undefined,
+        email: profile.email || undefined,
+        phoneNumber: profile.phone || undefined,
+        avatarUrl: profile.avatar_url || undefined,
+        firstAppointmentDate: profile.first_appointment_date || undefined,
+        experienceYears: profile.experience_years ?? undefined,
+        birthDate: profile.birth_date || undefined,
+        birthPlace: profile.birth_place || undefined,
+        familyStatus: profile.family_status || undefined,
+        gender: profile.gender === 'M' || profile.gender === 'F' ? profile.gender : undefined,
+      } : localState.profile,
+      classes, students: by('student').map((r: any) => fromRow('student', r)), grades: by('grade').map((r: any) => fromRow('grade', r)),
+      sessions, timetable: by('timetable').map((r: any) => fromRow('timetable', r)).filter(Boolean),
+      lessonProgress: by('lessonProgress').map((r: any) => fromRow('lessonProgress', r)).filter(Boolean), customUnits: by('customUnit').map((r: any) => fromRow('customUnit', r)).filter(Boolean), lessonPlans: by('lessonPlan').map((r: any) => fromRow('lessonPlan', r)).filter(Boolean), dashboardTasks,
+      unitPdfFiles,
+      activeClassId: classes.some((item: ClassRoom) => item.id === localState.activeClassId) ? localState.activeClassId : classes[0]?.id || null };
+  } catch (error) { if (schemaError(error)) throw localOnly(); throw error; }
+}
+
+async function applyOperation(client: AnyClient, ownerId: string, workspace: string, operation: SyncOperation, metadata: SyncMetadata): Promise<void> {
+  const table = tables[operation.entity];
+  if (operation.entity === 'profile') {
+    const p = operation.payload as any;
+    const result = await client.from(table).upsert({
+      id: ownerId,
+      full_name: p.name || null,
+      title: p.title || null,
+      school_name: p.schoolName || null,
+      state_name: p.stateName || null,
+      academic_year: p.academicYear || null,
+      hijri_year: p.hijriYear || null,
+      first_name_ar: p.firstNameAr || null,
+      last_name_ar: p.lastNameAr || null,
+      first_name_en: p.firstNameEn || null,
+      last_name_en: p.lastNameEn || null,
+      email: p.email || null,
+      phone: p.phoneNumber || null,
+      avatar_url: p.avatarUrl || null,
+      first_appointment_date: p.firstAppointmentDate || null,
+      experience_years: p.experienceYears ?? null,
+      birth_date: p.birthDate || null,
+      birth_place: p.birthPlace || null,
+      family_status: p.familyStatus || null,
+      gender: p.gender || null,
+    }, { onConflict: 'id' });
+    if (result.error) throw result.error; return;
+  }
+  if (operation.entity === 'settings') {
+    const result = await client.from(table).upsert({
+      owner_id: ownerId,
+      workspace_id: workspace,
+      settings: operation.payload,
+      revision: metadata.revision,
+      updated_by: ownerId,
+      updated_by_device: metadata.deviceId,
+    }, { onConflict: 'workspace_id' });
+    if (result.error) throw result.error; return;
+  }
+  const recordId = getCloudRecordId(ownerId, operation.entity, operation.recordId);
+  const existing = await client.from(table).select('revision,sync_revision,updated_by,sync_device_id').eq('id', recordId).eq('owner_id', ownerId).eq('workspace_id', workspace).maybeSingle();
+  if (existing.error) throw existing.error;
+  const remoteRevision = Number(existing.data?.sync_revision ?? existing.data?.revision ?? 0);
+  if (existing.data && remoteRevision > metadata.revision && (existing.data.updated_by || existing.data.sync_device_id) !== metadata.deviceId) {
+    const conflict = await client.from('sync_conflicts').insert({ owner_id: ownerId, entity_type: operation.entity, entity_id: operation.recordId, local_revision: metadata.revision, remote_revision: remoteRevision, local_device_id: metadata.deviceId, remote_device_id: existing.data.updated_by || existing.data.sync_device_id || null, resolution: 'last-write-wins' });
+    if (conflict.error) throw conflict.error;
+    throw new SyncConflictError(operation.entity, operation.recordId, remoteRevision, metadata.revision);
+  }
+  const result = operation.action === 'delete'
+    ? await client.from(table).delete().eq('id', recordId).eq('owner_id', ownerId).eq('workspace_id', workspace)
+    : await client.from(table).upsert(toRow(operation.entity, operation.payload, ownerId, workspace, metadata), { onConflict: 'id' });
+  if (result.error) throw result.error;
+}
+
+export async function saveCoreState(client: Client, ownerId: string, state: AppState, metadata: SyncMetadata = { revision: 0, updatedAt: new Date().toISOString(), deviceId: 'server' }): Promise<void> {
+  try {
+    const id = await enqueueSyncState(ownerId, state, metadata.revision, metadata.updatedAt);
+    const entry = (await import('@/lib/sync-outbox')).listSyncOutbox;
+    const pending = await entry(ownerId);
+    const current = pending.find(item => item.id === id);
+    if (!current) throw new Error('Unable to create sync operations');
+    const workspace = await workspaceId(client as AnyClient, ownerId);
+    for (const operation of current.operations) await applyOperation(client as AnyClient, ownerId, workspace, operation, metadata);
+    await (await import('@/lib/sync-outbox')).removeSyncOutboxEntry(id);
+  } catch (error) { if (schemaError(error)) throw localOnly(); throw error; }
+}
+
+export async function applySyncOutboxEntry(client: Client, ownerId: string, entry: SyncOutboxEntry, deviceId: string): Promise<void> {
+  try {
+    const workspace = await workspaceId(client as AnyClient, ownerId);
+    for (const operation of entry.operations) {
+      await applyOperation(client as AnyClient, ownerId, workspace, operation, {
+        revision: entry.revision,
+        updatedAt: entry.updatedAt,
+        deviceId,
+      });
+    }
+  } catch (error) {
+    if (schemaError(error)) throw localOnly();
     throw error;
   }
 }
 
-export async function saveCoreState(
-  client: Client,
-  ownerId: string,
-  state: AppState,
-  syncMetadata?: SyncMetadata,
-): Promise<void> {
-  const classIdMap = new Map(state.classes.map((item) => [item.id, cloudId(ownerId, 'class', item.id)]));
-  const studentIdMap = new Map(state.students.map((item) => [item.id, cloudId(ownerId, 'student', item.id)]));
-  const classRows: Database['public']['Tables']['classes']['Insert'][] = state.classes.map((item) => ({
-    id: classIdMap.get(item.id),
-    owner_id: ownerId,
-    name: item.name.trim(),
-    level: item.level,
-    section: item.stream || null,
-    weekly_hours: getWeeklyHours(item.level),
-    academic_year: state.profile.academicYear || null,
-    notes: null,
-    sync_revision: syncMetadata?.revision || 0,
-    sync_updated_at: syncMetadata?.updatedAt || new Date().toISOString(),
-    sync_device_id: syncMetadata?.deviceId || null,
-  }));
-  const studentRows: Database['public']['Tables']['students']['Insert'][] = state.students
-    .filter((item) => state.classes.some((classItem) => classItem.id === item.classId))
-    .map((item) => ({
-      id: studentIdMap.get(item.id),
-      owner_id: ownerId,
-      class_id: classIdMap.get(item.classId)!,
-      external_id: item.regNumber || item.registrationNumber || null,
-      full_name: item.fullName.trim(),
-      number_in_list: Math.max(1, item.numberInList),
-      reg_number: item.regNumber || null,
-      registration_number: item.registrationNumber || null,
-      is_repeater: item.isRepeater ?? false,
-      guardian_phone: item.guardianPhone || null,
-      gender: item.gender === 'M' ? 'male' : item.gender === 'F' ? 'female' : null,
-      birth_date: item.birthDate || null,
-      notes: item.notes || null,
-      sync_revision: syncMetadata?.revision || 0,
-      sync_updated_at: syncMetadata?.updatedAt || new Date().toISOString(),
-      sync_device_id: syncMetadata?.deviceId || null,
-    }));
-  const gradeRows: Database['public']['Tables']['grades']['Insert'][] = state.grades
-    .filter((item) => studentIdMap.has(item.studentId) && classIdMap.has(item.classId))
-    .map((item) => ({
-      id: isUuid(item.id) ? item.id : stableUuid(`grade:${ownerId}:${item.studentId}:${item.trimester}`),
-      owner_id: ownerId,
-      student_id: studentIdMap.get(item.studentId)!,
-      class_id: classIdMap.get(item.classId)!,
-      trimester: item.trimester,
-      continuous_eval: item.continuousEval,
-      behavior_score: item.behaviorScore ?? null,
-      attendance_score: item.attendanceScore ?? null,
-      notebook_score: item.notebookScore ?? null,
-      participation_score: item.participationScore ?? null,
-      quiz: item.quiz,
-      exam: item.exam,
-      calculated_average: item.calculatedAverage ?? null,
-      estimation: item.estimation || null,
-      guidance: item.guidance || null,
-      remarks: item.remarks || null,
-      follow_up_notes: item.followUpNotes || null,
-      sync_revision: syncMetadata?.revision || 0,
-      sync_updated_at: syncMetadata?.updatedAt || new Date().toISOString(),
-      sync_device_id: syncMetadata?.deviceId || null,
-    }));
-
-  try {
-    const [existingClasses, existingStudents, existingGrades, existingSettings, existingTombstones] = await Promise.all([
-      client.from('classes').select('id').eq('owner_id', ownerId),
-      client.from('students').select('id').eq('owner_id', ownerId),
-      client.from('grades').select('id').eq('owner_id', ownerId),
-      client.from('app_settings').select('settings,revision,updated_at,updated_by_device').eq('owner_id', ownerId).maybeSingle(),
-      client.from('sync_tombstones').select('entity_type,entity_id').eq('owner_id', ownerId),
-    ]);
-    if (existingClasses.error) throw existingClasses.error;
-    if (existingStudents.error) throw existingStudents.error;
-    if (existingGrades.error) throw existingGrades.error;
-    if (existingSettings.error && existingSettings.error.code !== 'PGRST116') throw existingSettings.error;
-    if (existingTombstones.error) throw existingTombstones.error;
-
-    const currentClassIds = new Set(classRows.map(row => row.id));
-    const currentStudentIds = new Set(studentRows.map(row => row.id));
-    const currentGradeIds = new Set(gradeRows.map(row => row.id));
-
-    const deletedCloudIds = new Set((state.deletedRecordIds || []).flatMap(localId => {
-      if (isUuid(localId)) return [localId];
-      return [
-        stableUuid(`class:${ownerId}:${localId}`),
-        stableUuid(`student:${ownerId}:${localId}`),
-        stableUuid(`grade:${ownerId}:${localId}`)
-      ];
-    }));
-    const tombstoneRows: Database['public']['Tables']['sync_tombstones']['Insert'][] = [];
-    for (const localId of state.deletedRecordIds || []) {
-      const entities: Array<[SyncEntityType, string]> = [
-        ['class', cloudId(ownerId, 'class', localId)],
-        ['student', cloudId(ownerId, 'student', localId)],
-        ['grade', isUuid(localId) ? localId : stableUuid(`grade:${ownerId}:${localId}`)],
-        ['session', localId],
-        ['timetable', localId],
-        ['lessonProgress', localId],
-        ['customUnit', localId],
-        ['lessonPlan', localId],
-      ];
-      for (const [entityType, entityId] of entities) {
-        tombstoneRows.push({
-          owner_id: ownerId,
-          entity_type: entityType,
-          entity_id: entityId,
-          deleted_at: syncMetadata?.updatedAt || new Date().toISOString(),
-          revision: syncMetadata?.revision || 0,
-          device_id: syncMetadata?.deviceId || null,
-        });
-      }
-    }
-    if (tombstoneRows.length > 0) {
-      const tombstonesResult = await client.from('sync_tombstones').upsert(tombstoneRows, { onConflict: 'owner_id,entity_type,entity_id' });
-      if (tombstonesResult.error) throw tombstonesResult.error;
-    }
-
-    const staleClassIds = existingClasses.data
-      .map(row => row.id)
-      .filter(id => !currentClassIds.has(id) && deletedCloudIds.has(id));
-    const staleStudentIds = existingStudents.data
-      .map(row => row.id)
-      .filter(id => !currentStudentIds.has(id) && deletedCloudIds.has(id));
-    const staleGradeIds = existingGrades.data
-      .map(row => row.id)
-      .filter(id => !currentGradeIds.has(id) && deletedCloudIds.has(id));
-
-    if (staleGradeIds.length > 0) {
-      const result = await client.from('grades').delete().in('id', staleGradeIds).eq('owner_id', ownerId);
-      if (result.error) throw result.error;
-    }
-    if (staleStudentIds.length > 0) {
-      const result = await client.from('students').delete().in('id', staleStudentIds).eq('owner_id', ownerId);
-      if (result.error) throw result.error;
-    }
-    if (staleClassIds.length > 0) {
-      const result = await client.from('classes').delete().in('id', staleClassIds).eq('owner_id', ownerId);
-      if (result.error) throw result.error;
-    }
-
-    const classesResult = await client.from('classes').upsert(classRows, { onConflict: 'id' });
-    if (classesResult.error) throw classesResult.error;
-    const studentsResult = await client.from('students').upsert(studentRows, { onConflict: 'id' });
-    if (studentsResult.error) throw studentsResult.error;
-    const gradesResult = await client.from('grades').upsert(gradeRows, { onConflict: 'id' });
-    if (gradesResult.error) throw gradesResult.error;
-
-    const remoteSettings = (existingSettings.data?.settings || {}) as Partial<AppState>;
-    const deletedRemoteKeys = new Set(
-      existingTombstones.data.map((item) => `${item.entity_type}:${item.entity_id}`),
-    );
-
-    const mergeArrays = <T extends { id: string }>(local: T[], remote: T[] = [], entityType?: SyncEntityType) => {
-      const map = new Map<string, T>();
-      for (const item of remote) {
-        if (!entityType || !deletedRemoteKeys.has(`${entityType}:${item.id}`)) {
-          map.set(item.id, item);
-        }
-      }
-      for (const item of local) {
-        map.set(item.id, item);
-      }
-      return Array.from(map.values());
-    };
-
-    const settings = JSON.parse(JSON.stringify({
-      profile: state.profile,
-      timetable: mergeArrays(state.timetable, remoteSettings.timetable, 'timetable'),
-      sessions: mergeArrays(state.sessions, remoteSettings.sessions, 'session'),
-      lessonProgress: mergeArrays(state.lessonProgress, remoteSettings.lessonProgress, 'lessonProgress'),
-      customUnits: mergeArrays(state.customUnits, remoteSettings.customUnits, 'customUnit'),
-      lessonPlans: mergeArrays(state.lessonPlans, remoteSettings.lessonPlans, 'lessonPlan'),
-      unitPdfFiles: Object.fromEntries(
-        Object.entries(state.unitPdfFiles || {}).map(([key, value]) => [
-          key,
-          { ...value, fileDataUrl: undefined },
-        ]),
-      ),
-      calendarSettings: state.calendarSettings,
-      theme: state.theme,
-      dashboardStyle: state.dashboardStyle,
-      sidebarCollapsed: state.sidebarCollapsed,
-      onboardingDismissed: state.onboardingDismissed,
-      syncMetadata: syncMetadata || null,
-    })) as Database['public']['Tables']['app_settings']['Insert']['settings'];
-
-    const localUpdatedAt = syncMetadata?.updatedAt || new Date().toISOString();
-    const remoteUpdatedAt = existingSettings.data?.updated_at;
-    if (
-      remoteUpdatedAt &&
-      syncMetadata &&
-      remoteUpdatedAt > localUpdatedAt &&
-      existingSettings.data?.updated_by_device !== syncMetadata.deviceId
-    ) {
-      const conflictResult = await client.from('sync_conflicts').insert({
-        owner_id: ownerId,
-        entity_type: 'app_settings',
-        entity_id: ownerId,
-        local_revision: syncMetadata.revision,
-        remote_revision: existingSettings.data?.revision || 0,
-        local_device_id: syncMetadata.deviceId,
-        remote_device_id: existingSettings.data?.updated_by_device || null,
-        resolution: 'last-write-wins',
-      });
-      if (conflictResult.error) throw conflictResult.error;
-      return;
-    }
-
-    const { error: settingsError } = await client.from('app_settings').upsert({
-      owner_id: ownerId,
-      settings,
-      revision: syncMetadata?.revision || 0,
-      updated_by_device: syncMetadata?.deviceId || null,
-    }, { onConflict: 'owner_id' });
-    if (settingsError) throw settingsError;
-  } catch (error) {
-    if (isSchemaUnavailableError(error)) {
-      throw createLocalOnlyCloudError();
-    }
-    throw error;
-  }
+export async function resetCloudWorkspace(client: Client, ownerId: string): Promise<void> {
+  const result = await client.rpc('reset_workspace');
+  if (result.error) throw result.error;
 }

@@ -28,7 +28,6 @@ async function walk(directory: string): Promise<string[]> {
 for (const filePath of await walk(root)) {
   const bytes = await readFile(filePath);
   const relative = path.relative(root, filePath).split(path.sep).join('/');
-  const unitId = path.basename(relative, '.pdf');
   const storagePath = `bundled/${relative}`;
   const upload = await client.storage.from('memoranda').upload(storagePath, bytes, {
     contentType: 'application/pdf',
@@ -36,16 +35,43 @@ for (const filePath of await walk(root)) {
   });
   if (upload.error) throw upload.error;
 
-  const metadata = await client.from('memoranda_files').upsert({
-    owner_id: null,
-    unit_id: unitId,
-    file_name: path.basename(filePath),
-    storage_path: storagePath,
-    file_size: bytes.byteLength,
-    checksum: await checksum(bytes),
-    mime_type: 'application/pdf',
-    is_bundled: true,
-  }, { onConflict: 'storage_path' });
-  if (metadata.error) throw metadata.error;
+  const digest = await checksum(bytes);
+  const { data: workspaces, error: workspaceError } = await client
+    .from('workspaces')
+    .select('id,owner_id');
+  if (workspaceError) throw workspaceError;
+  for (const workspace of workspaces) {
+    const existing = await client
+      .from('memoranda_files')
+      .select('id')
+      .eq('workspace_id', workspace.id)
+      .eq('storage_path', storagePath)
+      .maybeSingle();
+    if (existing.error) throw existing.error;
+
+    const metadata = existing.data
+      ? await client.from('memoranda_files').update({
+          file_name: path.basename(filePath),
+          file_size: bytes.byteLength,
+          checksum: digest,
+          mime_type: 'application/pdf',
+          is_bundled: true,
+          deleted_at: null,
+        }).eq('id', existing.data.id).eq('workspace_id', workspace.id)
+      : await client.from('memoranda_files').insert({
+          workspace_id: workspace.id,
+          owner_id: workspace.owner_id,
+          unit_id: null,
+          file_name: path.basename(filePath),
+          storage_path: storagePath,
+          file_size: bytes.byteLength,
+          checksum: digest,
+          mime_type: 'application/pdf',
+          is_bundled: true,
+          revision: 0,
+          deleted_at: null,
+        });
+    if (metadata.error) throw metadata.error;
+  }
   console.log(`Seeded ${relative}`);
 }

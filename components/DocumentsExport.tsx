@@ -407,7 +407,7 @@ export const DocumentsExport: React.FC<DocumentsExportProps> = ({ state }) => {
         <div className="flex items-center gap-2.5 flex-wrap">
           <button
             type="button" onClick={handleExportDoc}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#2E7D9B] hover:bg-[#256A85] text-white text-xs font-bold shadow-xs hover:shadow-md transition-all cursor-pointer" title="تصدير الوثيقة كملف Microsoft Word (.doc)" id="btn-export-doc-word" >
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-xs font-bold shadow-xs hover:shadow-md transition-all cursor-pointer" title="تصدير الوثيقة كملف Microsoft Word (.doc)" id="btn-export-doc-word" >
             <Download className="w-4 h-4" />
             <span>تصدير ملف DOC (Word)</span>
           </button>
@@ -421,7 +421,7 @@ export const DocumentsExport: React.FC<DocumentsExportProps> = ({ state }) => {
           <button
             type="button" onClick={() => setDocType('JOURNAL')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              docType === 'JOURNAL' ? 'bg-[#2E7D9B] text-white shadow-2xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100' }`}
+              docType === 'JOURNAL' ? 'bg-[var(--primary)] text-white shadow-2xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100' }`}
           >
             الدفتر اليومي للحصص
           </button>
@@ -429,7 +429,7 @@ export const DocumentsExport: React.FC<DocumentsExportProps> = ({ state }) => {
           <button
             type="button" onClick={() => setDocType('CURRICULUM_DISTRIBUTION')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              docType === 'CURRICULUM_DISTRIBUTION' ? 'bg-[#2E7D9B] text-white shadow-2xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100' }`}
+              docType === 'CURRICULUM_DISTRIBUTION' ? 'bg-[var(--primary)] text-white shadow-2xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100' }`}
           >
             التوزيع السنوي والتدرجات
           </button>
@@ -437,7 +437,7 @@ export const DocumentsExport: React.FC<DocumentsExportProps> = ({ state }) => {
           <button
             type="button" onClick={() => setDocType('GRADES_ROSTER')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              docType === 'GRADES_ROSTER' ? 'bg-[#2E7D9B] text-white shadow-2xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100' }`}
+              docType === 'GRADES_ROSTER' ? 'bg-[var(--primary)] text-white shadow-2xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100' }`}
           >
             كشف النقاط والتقويم الفصلي
           </button>
@@ -445,7 +445,7 @@ export const DocumentsExport: React.FC<DocumentsExportProps> = ({ state }) => {
           <button
             type="button" onClick={() => setDocType('COUNCIL_FORM')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              docType === 'COUNCIL_FORM' ? 'bg-[#2E7D9B] text-white shadow-2xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100' }`}
+              docType === 'COUNCIL_FORM' ? 'bg-[var(--primary)] text-white shadow-2xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100' }`}
           >
             تقرير مجلس القسم
           </button>
@@ -453,7 +453,7 @@ export const DocumentsExport: React.FC<DocumentsExportProps> = ({ state }) => {
           <button
             type="button" onClick={() => setDocType('STUDENTS_LIST')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              docType === 'STUDENTS_LIST' ? 'bg-[#2E7D9B] text-white shadow-2xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100' }`}
+              docType === 'STUDENTS_LIST' ? 'bg-[var(--primary)] text-white shadow-2xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100' }`}
           >
             قائمة تلاميذ القسم
           </button>
@@ -701,8 +701,8 @@ export const DocumentsExport: React.FC<DocumentsExportProps> = ({ state }) => {
             <div className="grid grid-cols-3 gap-2 border border-slate-900 p-2 text-xs font-bold bg-slate-50">
               <div>تعداد القسم الكلي: <span className="font-mono">{stats.totalStudents}</span></div>
               <div>المقوّمون فعلياً: <span className="font-mono">{stats.evaluatedCount}</span></div>
-              <div>الحاصلون على المعدل: <span className="font-mono text-[#2E7D9B]">{stats.passCount}</span></div>
-              <div>نسبة النجاح الفصلي: <span className="font-mono text-[#2E7D9B]">{stats.passRate.toFixed(1)}%</span></div>
+              <div>الحاصلون على المعدل: <span className="font-mono text-[var(--primary)]">{stats.passCount}</span></div>
+              <div>نسبة النجاح الفصلي: <span className="font-mono text-[var(--primary)]">{stats.passRate.toFixed(1)}%</span></div>
               <div>معدل المادة العام: <span className="font-mono">{stats.averageScore.toFixed(2)} / 20</span></div>
               <div>أعلى معدل: <span className="font-mono">{stats.highestScore.toFixed(2)}</span> ({stats.topStudentName})</div>
             </div>

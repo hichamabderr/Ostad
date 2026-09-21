@@ -1,4 +1,3 @@
-import { isSchoolSummaryOrFooterRow } from "./excel-sync";
 import {
   AcademicCalendarSettings,
   AppTheme,
@@ -24,6 +23,7 @@ export interface AppState {
   lessonProgress: ClassLessonProgress[];
   customUnits: CurriculumUnit[];
   lessonPlans: LessonPlan[];
+  dashboardTasks?: Array<{ id: string; text: string; done: boolean }>;
   unitPdfFiles?: {
     [unitId: string]: {
       fileName: string;
@@ -44,7 +44,6 @@ export interface AppState {
   deletedRecordIds?: string[];
 }
 
-const STORAGE_KEY = "sanad_al_oustadh_state_v2";
 const BACKUP_VERSION = "2.0.0";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -840,118 +839,6 @@ export function isDemoState(state: AppState): boolean {
   return state.profile.name === 'أستاذ المادة' &&
     state.classes.some((item) => item.id.startsWith('cls-')) &&
     state.students.some((item) => item.id.startsWith('std-'));
-}
-
-export function loadAppState(): AppState {
-  if (typeof window === "undefined") return getInitialState();
-
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      const initial = getInitialState();
-      saveAppState(initial);
-      return initial;
-    }
-    const parsed = JSON.parse(raw) as AppState;
-    // Ensure all critical collections exist
-    // Deduplicate customUnits if any duplicate IDs exist
-    const rawCustomUnits = Array.isArray(parsed.customUnits)
-      ? parsed.customUnits
-      : [];
-    const customUnitsMap = new Map<string, (typeof rawCustomUnits)[0]>();
-    for (const u of rawCustomUnits) {
-      if (u && u.id) {
-        customUnitsMap.set(u.id, u);
-      }
-    }
-    const sanitizedCustomUnits = Array.from(customUnitsMap.values());
-
-    // Sanitize and re-index students: strip any accidental summary rows (e.g. مجموع الذكور والإناث)
-    const rawStudents = Array.isArray(parsed.students)
-      ? parsed.students
-      : INITIAL_STUDENTS;
-    const cleanedStudents = rawStudents.filter(
-      (s) => s && s.fullName && !isSchoolSummaryOrFooterRow(s.fullName),
-    );
-
-    // Group by class and ensure numbering strictly starts at 1 continuously
-    const classIds = Array.from(new Set(cleanedStudents.map((s) => s.classId)));
-    const idToSequentialNum = new Map<string, number>();
-    classIds.forEach((cId) => {
-      const inClass = cleanedStudents
-        .filter((s) => s.classId === cId)
-        .sort((a, b) => (a.numberInList || 0) - (b.numberInList || 0));
-      inClass.forEach((st, idx) => {
-        idToSequentialNum.set(st.id, idx + 1);
-      });
-    });
-
-    const sanitizedStudents = cleanedStudents.map((st) => ({
-      ...st,
-      numberInList: idToSequentialNum.get(st.id) || st.numberInList || 1,
-    }));
-
-    // Sanitize timetable slots: normalize 13:00 to Algerian afternoon start 13:30
-    const rawTimetable = Array.isArray(parsed.timetable)
-      ? parsed.timetable
-      : INITIAL_TIMETABLE;
-    const sanitizedTimetable = rawTimetable.map((slot) => {
-      if (slot.startTime === "13:00") {
-        return { ...slot, startTime: "13:30", endTime: "14:30" };
-      }
-      return slot;
-    });
-
-    return {
-      profile: parsed.profile || DEFAULT_PROFILE,
-      classes: parsed.classes || INITIAL_CLASSES,
-      timetable: sanitizedTimetable,
-      students: sanitizedStudents,
-      sessions: parsed.sessions || INITIAL_SESSIONS,
-      grades: parsed.grades || INITIAL_GRADES,
-      lessonProgress: parsed.lessonProgress || INITIAL_PROGRESS,
-      customUnits: sanitizedCustomUnits,
-      lessonPlans: parsed.lessonPlans || [],
-      activeClassId:
-        parsed.activeClassId ||
-        (parsed.classes && parsed.classes[0]?.id) ||
-        null,
-      activeTrimester: parsed.activeTrimester || 1,
-      calendarSettings: {
-        ...DEFAULT_CALENDAR_SETTINGS,
-        ...(parsed.calendarSettings || {}),
-        evaluationRules: {
-          ...DEFAULT_CALENDAR_SETTINGS.evaluationRules,
-          ...(parsed.calendarSettings?.evaluationRules || {}),
-        },
-      },
-      theme: parsed.theme || "light",
-      dashboardStyle: parsed.dashboardStyle || "executive",
-      sidebarCollapsed: parsed.sidebarCollapsed || false,
-      onboardingDismissed: parsed.onboardingDismissed || false,
-    };
-  } catch (err) {
-    console.error("Failed to load local state:", err);
-    try {
-      const corruptKey = `${STORAGE_KEY}.corrupt.${Date.now()}`;
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) localStorage.setItem(corruptKey, raw);
-      localStorage.removeItem(STORAGE_KEY);
-    } catch (backupError) {
-      console.error("Failed to preserve corrupt local state:", backupError);
-    }
-    return getInitialState();
-  }
-}
-
-export function saveAppState(state: AppState): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (err) {
-    console.error("Failed to save local state:", err);
-    throw err;
-  }
 }
 
 export function exportBackupJSON(state: AppState): string {

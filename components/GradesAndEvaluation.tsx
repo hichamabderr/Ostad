@@ -723,7 +723,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = ({
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={isExporting}
-              className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#2E7D9B] hover:bg-[var(--primary-hover)] disabled:opacity-50 text-white text-xs font-bold shadow-xs cursor-pointer transition-colors" title="حقن النقاط في ملف الرقمنة (Excel) المفرغ" >
+              className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] disabled:opacity-50 text-white text-xs font-bold shadow-xs cursor-pointer transition-colors" title="حقن النقاط في ملف الرقمنة (Excel) المفرغ" >
               <Download className={`w-4 h-4 shrink-0 ${isExporting ? 'animate-bounce' : ''}`} />
               <span>حقن الرقمنة</span>
             </button>
@@ -731,7 +731,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = ({
             <button
               onClick={handleExportExcel}
               className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold shadow-xs cursor-pointer transition-colors" title="استخراج كشف النقاط كملف Excel" id="btn-export-grades-sheet" >
-              <FileSpreadsheet className="w-4 h-4 text-[#2E7D9B] shrink-0" />
+              <FileSpreadsheet className="w-4 h-4 text-[var(--primary)] shrink-0" />
               <span>استخراج كشف النقاط</span>
             </button>
           </div>
@@ -900,7 +900,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = ({
                           {student.numberInList}
                         </span>
                         <div className="min-w-0">
-                          <h4 className="font-bold text-sm text-[#1A1C1E] whitespace-normal break-words leading-tight">
+                          <h4 className="font-bold text-sm text-[var(--text-primary)] whitespace-normal break-words leading-tight">
                             {student.fullName}
                           </h4>
                           {student.isRepeater && (

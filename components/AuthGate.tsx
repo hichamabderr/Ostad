@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
 import { getSupabaseEnv } from '@/lib/supabase/env';
 import { showToast } from '@/components/Toast';
@@ -115,8 +116,8 @@ function AuthLanding() {
         </div>
       </section>
       <footer className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-center gap-x-5 gap-y-2 pb-2 text-xs text-[var(--text-secondary)]">
-        <a className="transition-colors hover:text-[var(--primary)]" href="/privacy">سياسة الخصوصية</a>
-        <a className="transition-colors hover:text-[var(--primary)]" href="/terms">شروط الاستخدام</a>
+        <Link className="transition-colors hover:text-[var(--primary)]" href="/privacy">سياسة الخصوصية</Link>
+        <Link className="transition-colors hover:text-[var(--primary)]" href="/terms">شروط الاستخدام</Link>
         <span>© {new Date().getFullYear()} معين الأستاذ</span>
       </footer>
     </main>

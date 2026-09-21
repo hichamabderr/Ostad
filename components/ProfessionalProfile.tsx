@@ -236,7 +236,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
 
       {/* Official Teacher Card Preview */}
       <div
-        id="teacher-official-card" className="bg-linear-to-br from-[#2E7D9B] via-[#1A2E35] to-[#0D2C3B] text-white rounded-xl p-6 sm:p-8 shadow-md border border-slate-400/30 relative overflow-hidden print:m-0 print:border-none">
+        id="teacher-official-card" className="bg-linear-to-br from-[var(--primary)] via-[var(--accent-navy-card)] to-[var(--accent-navy)] text-white rounded-xl p-6 sm:p-8 shadow-md border border-slate-400/30 relative overflow-hidden print:m-0 print:border-none">
         {/* Background Islamic Watermark */}
         <div className="absolute top-0 left-0 -translate-x-12 -translate-y-12 w-64 h-64 rounded-full border-8 border-[var(--primary)]/10 pointer-events-none" />
         <div className="absolute bottom-0 right-0 translate-x-16 translate-y-16 w-80 h-80 rounded-full border-8 border-[var(--primary)]/10 pointer-events-none" />
@@ -355,7 +355,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
             <button
               type="button" onClick={() => fileInputRef.current?.click()}
               className="flex items-center gap-1.5 px-3 py-2 bg-white  hover:bg-slate-100 text-slate-800  border border-slate-200  rounded-xl text-xs font-bold cursor-pointer transition-colors shadow-xs">
-              <Upload className="w-3.5 h-3.5 text-[#2E7D9B]" />
+              <Upload className="w-3.5 h-3.5 text-[var(--primary)]" />
               <span>{profile.avatarUrl ? "تغيير الصورة" : "رفع صورة"}</span>
             </button>
             {profile.avatarUrl && (
@@ -371,7 +371,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
         {/* Section: الحالة الإدارية وتاريخ أول تعيين */}
         <div className="space-y-4">
           <h3 className="text-base font-bold text-slate-900  flex items-center gap-2 border-b border-slate-100  pb-3">
-            <Briefcase className="w-4 h-4 text-[#2E7D9B] " />
+            <Briefcase className="w-4 h-4 text-[var(--primary)] " />
             <span>الحالة المهنية والإدارية</span>
           </h3>
 
@@ -384,7 +384,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
               <input
                 type="date" value={profile.firstAppointmentDate || ""}
                 onChange={(e) => handleAppointmentDateChange(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white :bg-[#1A3140] focus:outline-none focus:ring-2 focus:ring-[#2E7D9B] text-slate-900  font-mono" />
+                className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900  font-mono" />
               <span className="text-[10px] text-slate-500  mt-1 block">
                 تُحسب الأقدمية تلقائياً بناءً على هذا التاريخ
               </span>
@@ -400,7 +400,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                 onChange={(e) =>
                   setProfile({ ...profile, title: e.target.value })
                 }
-                className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white :bg-[#1A3140] focus:outline-none focus:ring-2 focus:ring-[#2E7D9B] text-slate-900  font-bold">
+                className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900  font-bold">
                 <option value="أستاذ قسم أول">أستاذ قسم أول</option>
                 <option value="أستاذ قسم ثان">أستاذ قسم ثان</option>
                 <option value="أستاذ مميز">أستاذ مميز</option>
@@ -415,7 +415,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
         {/* Section: الحالة المدنية والعائلية */}
         <div className="space-y-4 pt-2">
           <h3 className="text-base font-bold text-slate-900  flex items-center gap-2 border-b border-slate-100  pb-3">
-            <User className="w-4 h-4 text-[#2E7D9B]" />
+            <User className="w-4 h-4 text-[var(--primary)]" />
             <span>الحالة المدنية والعائلية</span>
           </h3>
 
@@ -430,7 +430,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                 onChange={(e) =>
                   setProfile({ ...profile, firstNameAr: e.target.value })
                 }
-                placeholder="هشام" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white :bg-[#1A3140] focus:outline-none focus:ring-2 focus:ring-[#2E7D9B] text-slate-900 " />
+                placeholder="هشام" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 " />
             </div>
 
             {/* Last Name AR */}
@@ -443,7 +443,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                 onChange={(e) =>
                   setProfile({ ...profile, lastNameAr: e.target.value })
                 }
-                placeholder="عبد الرحيم" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white :bg-[#1A3140] focus:outline-none focus:ring-2 focus:ring-[#2E7D9B] text-slate-900 " />
+                placeholder="عبد الرحيم" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 " />
             </div>
 
             {/* Full Name in App */}
@@ -456,7 +456,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                 onChange={(e) =>
                   setProfile({ ...profile, name: e.target.value })
                 }
-                placeholder="هشام عبد الرحيم" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white :bg-[#1A3140] focus:outline-none focus:ring-2 focus:ring-[#2E7D9B] text-slate-900 " />
+                placeholder="هشام عبد الرحيم" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 " />
             </div>
 
             {/* First Name EN */}
@@ -469,7 +469,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                 onChange={(e) =>
                   setProfile({ ...profile, firstNameEn: e.target.value })
                 }
-                placeholder="Hicham" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white :bg-[#1A3140] focus:outline-none focus:ring-2 focus:ring-[#2E7D9B] text-left text-slate-900 " />
+                placeholder="Hicham" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-left text-slate-900 " />
             </div>
 
             {/* Last Name EN */}
@@ -482,7 +482,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                 onChange={(e) =>
                   setProfile({ ...profile, lastNameEn: e.target.value })
                 }
-                placeholder="Abderrahim" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white :bg-[#1A3140] focus:outline-none focus:ring-2 focus:ring-[#2E7D9B] text-left text-slate-900 " />
+                placeholder="Abderrahim" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-left text-slate-900 " />
             </div>
 
             {/* Birth Date */}
@@ -495,7 +495,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                 onChange={(e) =>
                   setProfile({ ...profile, birthDate: e.target.value })
                 }
-                className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white :bg-[#1A3140] focus:outline-none focus:ring-2 focus:ring-[#2E7D9B] text-slate-900  font-mono" />
+                className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900  font-mono" />
             </div>
 
             {/* Birth Place */}
@@ -508,7 +508,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                 onChange={(e) =>
                   setProfile({ ...profile, birthPlace: e.target.value })
                 }
-                placeholder="تلمسان" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white :bg-[#1A3140] focus:outline-none focus:ring-2 focus:ring-[#2E7D9B] text-slate-900 " />
+                placeholder="تلمسان" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 " />
             </div>
 
             {/* Gender */}
@@ -524,7 +524,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                     gender: e.target.value as "M" | "F",
                   })
                 }
-                className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white :bg-[#1A3140] focus:outline-none focus:ring-2 focus:ring-[#2E7D9B] text-slate-900 ">
+                className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 ">
                 <option value="M">ذكر</option>
                 <option value="F">أنثى</option>
               </select>
@@ -540,7 +540,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                 onChange={(e) =>
                   setProfile({ ...profile, familyStatus: e.target.value })
                 }
-                className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white :bg-[#1A3140] focus:outline-none focus:ring-2 focus:ring-[#2E7D9B] text-slate-900 ">
+                className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 ">
                 <option value="متزوج">متزوج (ة)</option>
                 <option value="أعزب">أعزب / عزباء</option>
                 <option value="مطلق">مطلق (ة)</option>
@@ -558,7 +558,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                 onChange={(e) =>
                   setProfile({ ...profile, schoolName: e.target.value })
                 }
-                placeholder="ثانوية الدكتور بن زرجب" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white :bg-[#1A3140] focus:outline-none focus:ring-2 focus:ring-[#2E7D9B] text-slate-900 " />
+                placeholder="ثانوية الدكتور بن زرجب" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 " />
             </div>
 
             {/* State / Wilaya */}
@@ -571,7 +571,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                 onChange={(e) =>
                   setProfile({ ...profile, stateName: e.target.value })
                 }
-                placeholder="تلمسان" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white :bg-[#1A3140] focus:outline-none focus:ring-2 focus:ring-[#2E7D9B] text-slate-900 " />
+                placeholder="تلمسان" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 " />
             </div>
 
             {/* Academic Year */}
@@ -584,7 +584,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                 onChange={(e) =>
                   setProfile({ ...profile, academicYear: e.target.value })
                 }
-                placeholder="2026/2027" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white :bg-[#1A3140] focus:outline-none focus:ring-2 focus:ring-[#2E7D9B] text-slate-900 " />
+                placeholder="2026/2027" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 " />
             </div>
           </div>
         </div>
@@ -602,7 +602,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                 onChange={(e) =>
                   setProfile({ ...profile, email: e.target.value })
                 }
-                placeholder="hichamdevpro@gmail.com" className="w-full pl-3 pr-9 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white :bg-[#1A3140] focus:outline-none focus:ring-2 focus:ring-[#2E7D9B] text-left text-xs text-slate-900 " />
+                placeholder="hichamdevpro@gmail.com" className="w-full pl-3 pr-9 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-left text-xs text-slate-900 " />
             </div>
           </div>
         </div>
@@ -619,7 +619,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
           )}
 
           <button
-            type="submit" className="flex items-center gap-2 px-6 py-2.5 bg-[#2E7D9B] hover:bg-[var(--primary-hover)] text-white font-bold rounded-xl shadow-xs transition-colors cursor-pointer text-xs">
+            type="submit" className="flex items-center gap-2 px-6 py-2.5 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white font-bold rounded-xl shadow-xs transition-colors cursor-pointer text-xs">
             <Save className="w-4 h-4" />
             <span>حفظ التعديلات</span>
           </button>

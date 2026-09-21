@@ -402,7 +402,7 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
       {/* Top Class Selector & Action Ribbon (Screenshot 6) */}
       <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-[var(--primary-soft)] text-[#2E7D9B] flex items-center justify-center font-bold">
+          <div className="w-10 h-10 rounded-xl bg-[var(--primary-soft)] text-[var(--primary)] flex items-center justify-center font-bold">
             <UserCheck className="w-5 h-5" />
           </div>
           <div>
@@ -456,7 +456,7 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
           <div className="flex items-center justify-center gap-3 pt-2">
             <button
               onClick={handleGenerateTrimesterSessions}
-              className="px-4 py-2 bg-[#2E7D9B] text-white text-xs font-bold rounded-xl shadow-xs hover:bg-[var(--primary-hover)] cursor-pointer" >
+              className="px-4 py-2 bg-[var(--primary)] text-white text-xs font-bold rounded-xl shadow-xs hover:bg-[var(--primary-hover)] cursor-pointer" >
               توليد حصص الفصل {state.activeTrimester}
             </button>
             {onNavigateToTimetable && (
@@ -481,7 +481,7 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
                 <select
                     value={selectedSessionId}
                     onChange={e => setSelectedSessionId(e.target.value)}
-                    className="w-full sm:flex-1 px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 text-[11px] sm:text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#2E7D9B] cursor-pointer" >
+                    className="w-full sm:flex-1 px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 text-[11px] sm:text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] cursor-pointer" >
                     {classSessions.map(ses => (
                       <option key={ses.id} value={ses.id}>
                     {ses.date} ({ses.startTime}-{ses.endTime}) {ses.sessionGoals ? `- ${ses.sessionGoals.slice(0, 30)}...` : ''}
@@ -521,7 +521,7 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
                 <input
                   type="text" value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="بحث عن تلميذ..." className="w-full pl-3 pr-9 py-2 border border-slate-200 rounded-xl bg-white text-xs focus:outline-none focus:ring-2 focus:ring-[#2E7D9B]" />
+                  placeholder="بحث عن تلميذ..." className="w-full pl-3 pr-9 py-2 border border-slate-200 rounded-xl bg-white text-xs focus:outline-none focus:ring-2 focus:ring-[var(--primary)]" />
               </div>
 
             </div>
@@ -558,7 +558,7 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
                   return (
                     <div
                       key={student.id}
-                      className="p-3 bg-white rounded-xl border border-[#D5DFDC] shadow-xs space-y-2.5 transition-all" >
+                      className="p-3 bg-white rounded-xl border border-[var(--border-default)] shadow-xs space-y-2.5 transition-all" >
                       {/* Top Row: Number, Name, Repeater, & Stats */}
                       <div className="flex flex-col sm:flex-row sm:justify-between items-start sm:items-center gap-3">
                         <div className="flex items-center gap-2 min-w-0 w-full sm:w-auto">
@@ -566,7 +566,7 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
                             {student.numberInList}
                           </span>
                           <div className="min-w-0 flex-1">
-                            <h4 className="font-bold text-sm text-[#1A1C1E] whitespace-normal break-words leading-tight">
+                            <h4 className="font-bold text-sm text-[var(--text-primary)] whitespace-normal break-words leading-tight">
                               {student.fullName}
                             </h4>
                             {student.isRepeater && (
@@ -622,7 +622,7 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
                                   onClick={() => handleToggleBehavior(student.id, 'disruptions')}
                                   className={`py-1.5 rounded-lg font-bold text-[10px] transition-all cursor-pointer border ${
                                     activeSession.disruptions?.includes(student.id)
-                                      ? 'bg-[#1A1C1E] text-white border-[#1A1C1E] shadow-xs' : 'border-transparent text-slate-500 hover:text-[#1A1C1E] hover:bg-white' }`}
+                                      ? 'bg-[var(--text-primary)] text-white border-[var(--text-primary)] shadow-xs' : 'border-transparent text-slate-500 hover:text-[var(--text-primary)] hover:bg-white' }`}
                                   title="شغب وسلوك سيء" >
                                   شغب -
                                 </button>
@@ -697,7 +697,7 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
                                   onClick={() => handleToggleBehavior(student.id, 'disruptions')}
                                   className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all cursor-pointer border ${
                                     activeSession.disruptions?.includes(student.id)
-                                      ? 'bg-[#1A1C1E] text-white border-[#1A1C1E] shadow-xs' : 'border-transparent text-slate-500 hover:text-[#1A1C1E] hover:bg-white' }`}
+                                      ? 'bg-[var(--text-primary)] text-white border-[var(--text-primary)] shadow-xs' : 'border-transparent text-slate-500 hover:text-[var(--text-primary)] hover:bg-white' }`}
                                   title="شغب وسلوك سيء" >
                                   شغب -
                                 </button>

@@ -432,7 +432,7 @@ export const AnnualDistribution: React.FC<AnnualDistributionProps> = ({
         {/* Compact document header */}
         <div className="flex flex-col md:flex-row items-center justify-between text-center md:text-right border-b border-slate-100 pb-4 gap-3 text-xs text-slate-600">
           <div>
-            <div className="font-bold text-[#2E7D9B] mt-0.5">
+            <div className="font-bold text-[var(--primary)] mt-0.5">
               {state.profile.schoolName || "ثانوية الدكتور بن زرجب"}
             </div>
           </div>
@@ -441,7 +441,7 @@ export const AnnualDistribution: React.FC<AnnualDistributionProps> = ({
             <h3 className="text-lg font-amiri font-bold text-slate-900">
               التوزيع السنوي
             </h3>
-            <div className="text-[#2E7D9B] font-bold text-sm">
+            <div className="text-[var(--primary)] font-bold text-sm">
               {levelLabel[selectedLevel]}
             </div>
           </div>
@@ -469,7 +469,7 @@ export const AnnualDistribution: React.FC<AnnualDistributionProps> = ({
               <span>•</span>
               <span>
                 الإجمالي:{" "}
-                <span className="font-bold text-[#2E7D9B] font-mono">
+                <span className="font-bold text-[var(--primary)] font-mono">
                   {totalHours} سا
                 </span>
               </span>
@@ -483,7 +483,7 @@ export const AnnualDistribution: React.FC<AnnualDistributionProps> = ({
             <div key={sec.number} className="space-y-2">
               <div className="flex items-center justify-between bg-[var(--primary-soft)]/90 border border-[var(--primary)]/20 px-4 py-2.5 rounded-xl">
                 <span className="font-bold text-emerald-950 text-xs flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-[#2E7D9B]" />
+                  <Layers className="w-4 h-4 text-[var(--primary)]" />
                   <span>{sec.title}</span>
                 </span>
                 <div className="flex items-center gap-2">
@@ -503,7 +503,7 @@ export const AnnualDistribution: React.FC<AnnualDistributionProps> = ({
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold">
                         <th className="p-2.5 w-12 text-center">الرقم</th>
-                        <th className="p-2.5 w-28 text-center bg-[var(--primary-soft)]/50 text-[#2E7D9B]">
+                        <th className="p-2.5 w-28 text-center bg-[var(--primary-soft)]/50 text-[var(--primary)]">
                           الشهر / الأسبوع
                         </th>
                         <th className="p-2.5 w-32">الميدان</th>
@@ -531,7 +531,7 @@ export const AnnualDistribution: React.FC<AnnualDistributionProps> = ({
                             {/* Integrated Month & Week Column */}
                             <td className="p-2.5 text-center whitespace-nowrap bg-[var(--primary-soft)]/30 border-x border-emerald-100/50">
                               <div className="inline-flex flex-col items-center">
-                                <span className="px-2 py-0.5 rounded bg-white text-[#2E7D9B] border border-[var(--primary)]/20 font-bold text-[11px] shadow-2xs">
+                                <span className="px-2 py-0.5 rounded bg-white text-[var(--primary)] border border-[var(--primary)]/20 font-bold text-[11px] shadow-2xs">
                                   {sched.monthName}
                                 </span>
                                 <span className="text-[10px] text-slate-600 font-mono mt-0.5">
@@ -580,7 +580,7 @@ export const AnnualDistribution: React.FC<AnnualDistributionProps> = ({
                           <span className="w-6 h-6 rounded bg-[var(--primary-soft)] text-[var(--primary)] border border-[var(--primary)]/20 flex items-center justify-center text-xs font-bold">
                             {String(unit.unitNumber).padStart(2, "0")}
                           </span>
-                          <span className="px-2 py-0.5 rounded bg-[var(--primary-soft)]/50 text-[#2E7D9B] border border-emerald-100 font-bold text-[10px]">
+                          <span className="px-2 py-0.5 rounded bg-[var(--primary-soft)]/50 text-[var(--primary)] border border-emerald-100 font-bold text-[10px]">
                             {sched.monthName} • {sched.weekName}
                           </span>
                         </div>

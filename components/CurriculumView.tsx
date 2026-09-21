@@ -327,7 +327,7 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
                               </div>
                             )}
                             {getUnitNote(unit.id) && (
-                              <div className="text-[11px] text-[#2E7D9B] bg-[var(--primary-soft)] border border-[var(--primary)]/20 px-2 py-1 rounded truncate">
+                              <div className="text-[11px] text-[var(--primary)] bg-[var(--primary-soft)] border border-[var(--primary)]/20 px-2 py-1 rounded truncate">
                                 📝 {getUnitNote(unit.id)}
                               </div>
                             )}
@@ -362,7 +362,7 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
                               setActiveNoteText(getUnitNote(unit.id));
                             }
                           }}
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[var(--primary-soft)] hover:bg-[var(--primary-soft)] text-[#2E7D9B] border border-[var(--primary)]/20 text-xs font-bold transition-colors cursor-pointer" title="أضف ملاحظة للوحدة" >
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[var(--primary-soft)] hover:bg-[var(--primary-soft)] text-[var(--primary)] border border-[var(--primary)]/20 text-xs font-bold transition-colors cursor-pointer" title="أضف ملاحظة للوحدة" >
                           <FileText className="w-3.5 h-3.5" />
                           <span>أضف ملاحظة</span>
                         </button>
@@ -396,17 +396,17 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
                     {/* Inline Manual Note Editor Drawer */}
                     {editingNoteId === unit.id && (
                       <div className="bg-amber-50/60 border-t border-amber-200/80 p-3 flex flex-col sm:flex-row items-center gap-2">
-                        <span className="text-xs font-bold text-[#2E7D9B] shrink-0">
+                        <span className="text-xs font-bold text-[var(--primary)] shrink-0">
                           📝 إضافة ملاحظة للوحدة:
                         </span>
                         <input
                           type="text" value={activeNoteText}
                           onChange={e => setActiveNoteText(e.target.value)}
-                          placeholder="اكتب ملاحظتك البيداغوجية، تنبيه، أو توصية للدرس..." className="flex-1 w-full text-xs bg-white border border-amber-300 rounded-lg px-3 py-1.5 focus:outline-[#2E7D9B] text-slate-800" />
+                          placeholder="اكتب ملاحظتك البيداغوجية، تنبيه، أو توصية للدرس..." className="flex-1 w-full text-xs bg-white border border-amber-300 rounded-lg px-3 py-1.5 focus:outline-[var(--primary)] text-slate-800" />
                         <div className="flex items-center gap-2 self-end sm:self-auto">
                           <button
                             onClick={() => handleSaveUnitNote(unit.id)}
-                            className="px-3 py-1.5 rounded-lg bg-[#2E7D9B] text-white text-xs font-bold hover:bg-[#0A4F37] transition-colors cursor-pointer whitespace-nowrap" >
+                            className="px-3 py-1.5 rounded-lg bg-[var(--primary)] text-white text-xs font-bold hover:bg-[var(--primary-hover)] transition-colors cursor-pointer whitespace-nowrap" >
                             حفظ
                           </button>
                           <button
@@ -518,7 +518,7 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
                         <div className="pt-2 flex items-center justify-end gap-2 flex-wrap">
                           <button
                             onClick={() => onPrepareUnit(unit, 'pdf')}
-                            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#1A1C1E] hover:bg-[#256A85] text-white text-xs font-bold transition-colors cursor-pointer" >
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[var(--text-primary)] hover:bg-[var(--primary-hover)] text-white text-xs font-bold transition-colors cursor-pointer" >
                             <FileText className="w-3.5 h-3.5 text-[var(--primary)]" />
                             <span>فتح بطاقة المذكرة وملف PDF المدمج</span>
                           </button>

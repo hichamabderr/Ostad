@@ -5,6 +5,7 @@ import { Calendar, Menu, Search } from "lucide-react";
 import React, { useEffect } from "react";
 import { PWAInstallButton } from "./PWAInstallButton";
 import { SanadTab } from "./SidebarSanad";
+import { selectActiveClass, selectStudentsByClass } from "@/lib/state-selectors";
 
 interface TopHeaderSanadProps {
   currentTab: SanadTab;
@@ -67,10 +68,8 @@ export const TopHeaderSanad: React.FC<TopHeaderSanadProps> = ({
   onToggleMobileSidebar,
 }) => {
   const currentInfo = TAB_TITLES[currentTab] || { title: "معين" };
-  const activeClass = state.classes.find(cls => cls.id === state.activeClassId);
-  const activeClassStudentCount = activeClass
-    ? state.students.filter(student => student.classId === activeClass.id).length
-    : 0;
+  const activeClass = selectActiveClass(state);
+  const activeClassStudentCount = selectStudentsByClass(state, activeClass?.id ?? null).length;
 
   // Algerian date formatting
   const today = new Date();

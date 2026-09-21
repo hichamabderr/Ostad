@@ -23,16 +23,21 @@
 | الوثائق | كشوف وقوائم وتقارير جاهزة للطباعة أو Word |
 | الإعدادات | الملف المهني، السنة، الفصول، العطل، النسخ الاحتياطية والمزامنة |
 
-## الحالة التقنية الحالية
+## المعمارية الحالية (إعادة البناء الجذرية)
 
 - **Next.js 16.3.5** مع App Router وReact 19 وTypeScript.
 - **Tailwind CSS 4.1** و`lucide-react`، مع واجهة فاتحة RTL وMobile-first.
-- الصفحة الرئيسية في [`app/page.tsx`](./app/page.tsx) حاوية واحدة؛ التبويب
-  يحفظ في عنوان URL عبر `?tab=` وسياق القسم عبر `?class=`.
+- كل وظيفة مساحة عمل لها مسار مستقل قابل للمشاركة: `/dashboard`، `/classes`،
+  `/attendance`، `/grades`، `/council`، `/sessions`،
+  `/annual-distribution`، `/curriculum`، `/timetable`،
+  `/lesson-preparation`، `/documents`، و`/settings`. لا يوجد `?tab`؛ يحدد
+  `usePathname` الشاشة ويستخدم `router.push` للتنقل. المسار الجذري يعيد
+  التوجيه إلى `/dashboard`.
+- `app/layout.tsx` وملفات المسارات الخفيفة Server Components افتراضياً، بينما
+  حاوية التطبيق والمكونات التفاعلية Client Components (`'use client'`). لا
+  تعبر hooks أو كائنات المتصفح حدود RSC؛ تمرر الحالة والأفعال عبر Props.
 - المصادقة والمزامنة السحابية اختيارية عبر Supabase. عند عدم توفرها يبقى
   التطبيق في وضع محلي.
-- لا توجد API خاصة بالتطبيق: القراءة والكتابة تتم من مكونات العميل ومن
-  Supabase Browser Client عند تسجيل الدخول.
 - ملفات Excel تُحلل محلياً بواسطة `xlsx`، وملفات Word تُنتج كـ`.doc`.
 - Service worker وmanifest يوفران تجربة PWA، مع استمرار العمل عند انقطاع
   الشبكة.
@@ -44,18 +49,18 @@ flowchart TD
     A[فتح التطبيق] --> B[AuthGate]
     B -->|جلسة Supabase| C[useCloudAppState]
     B -->|دون جلسة أو دون إعداد سحابي| C
-    C --> D[قراءة localStorage]
+    C --> D[قراءة IndexedDB cache]
     C --> E[قراءة Supabase + Realtime]
     D --> F[AppState موحد]
     E --> F
-    F --> G[التبويب الحالي في AppContent]
+    F --> G[المسار الحالي]
     G --> H[تعديل من الشاشة]
-    H --> I[حفظ محلي مؤجل]
-    I --> J[localStorage]
+    H --> I[حفظ محلي مؤجل في IndexedDB]
+    I --> J[cache]
     H --> K{مستخدم مسجل؟}
     K -->|لا| L[يبقى محلياً]
     K -->|نعم| M[IndexedDB outbox]
-    M --> N[محاولة مزامنة Supabase]
+    M --> N[محاولة مزامنة Supabase بالترتيب]
     N --> O[Realtime لباقي الجلسات]
 ```
 
@@ -64,40 +69,47 @@ flowchart TD
 1. **`AppState`**: نموذج الحالة الموحد في
    [`lib/storage.ts`](./lib/storage.ts)، ويشمل الملف المهني والأقسام والتلاميذ
    والتوقيت والحصص والحضور والنقاط والمنهاج والإعدادات.
-2. **`localStorage`**: نسخة العمل النصية تحت المفتاح
-   `sanad_al_oustadh_state_v2`. الحفظ مؤجل لتقليل الكتابات، مع تحقق من
-   النسخ المستوردة.
-3. **IndexedDB**: ملفات PDF الثنائية وطابور التغييرات المؤجلة في
+2. **IndexedDB cache**: نسخة العمل المحلية المعيارية للنسخة الجديدة فقط،
+   والتحقق من البيانات المستوردة. لا تُرحّل لقطات `localStorage` القديمة.
+   الحفظ مؤجل لتقليل الكتابات.
+3. **IndexedDB binary/outbox**: ملفات PDF الثنائية وطابور revisions المؤجلة في
    [`lib/binary-storage.ts`](./lib/binary-storage.ts) و
-   [`lib/sync-outbox.ts`](./lib/sync-outbox.ts).
-4. **Supabase**: عند وجود جلسة وإعدادات صحيحة، تحفظ الحالة الأساسية في الجداول
-   وتستقبل تحديثات Realtime. فشل السحابة لا يحذف النسخة المحلية.
+   [`lib/sync-outbox.ts`](./lib/sync-outbox.ts). لا تُفقد التغييرات عند انقطاع
+   الشبكة، وتُرسل بالترتيب عند عودتها.
+4. **Supabase العلائقي**: عند وجود جلسة وإعدادات صحيحة تحفظ البيانات في
+   جداول `profiles`, `app_settings`, `classes`, `students`, `grades`,
+   `sessions`, `attendance`, `session_behaviors`, `timetable_slots`,
+   `lesson_progress`, `lesson_plans`, `custom_units` وملفات المذكرات، مع
+   مفاتيح خارجية وRLS وRealtime. `app_settings` يحمل الإعدادات وrevision،
+   ويدعم النظام tombstones وسجل `sync_conflicts` مع رفض صريح للتحديث القديم.
+   فشل السحابة لا يحذف النسخة المحلية.
+   كل هذه الجداول مضافة إلى `supabase_realtime`، ويجب قبل إضافة أي جزء جديد
+   تحديد مصدره في Supabase ومسار outbox وإعادة المحاولة والفشل والحذف.
 5. **النسخ الاحتياطية**: JSON للبيانات المنظمة، وZIP للبيانات مع ملفات PDF عند
    استعمال أدوات الإعدادات.
 
-## المسارات الرئيسية
+### حالات المزامنة
 
-```mermaid
-flowchart LR
-    P[AppContent] --> N[SidebarSanad / MobileNavigation]
-    P --> T[TopHeaderSanad]
-    P --> V{التبويب}
-    V --> D[Dashboard]
-    V --> C[ClassesManager]
-    V --> A[AttendanceSanad]
-    V --> G[GradesAndEvaluation]
-    V --> R[CouncilAnalysis]
-    V --> S[SessionCahier]
-    V --> U[CurriculumView + AnnualDistribution]
-    V --> L[LessonPreparation]
-    V --> W[TimetableSanad]
-    V --> X[DocumentsExport]
-    V --> Q[SettingsSanad]
-    T --> Search[GlobalSearchModal]
-```
+`loading` تعني انتظار قراءة الحالة السحابية، و`ready` تعني اتصالاً سحابياً
+فعّالاً، و`sync-pending` تعني وجود تغييرات محلية بانتظار الإرسال، و
+`sync-failed` أو `conflict` تعني أن المزامنة تحتاج إعادة المحاولة، بينما
+`local-only` تعني أن التطبيق يعمل محلياً بسبب غياب الإعداد أو تعذر المخطط/الشبكة. التغييرات المحلية تدخل outbox وتُعاد محاولتها؛ لا تعتبر الشاشة
+التغيير سحابياً قبل تأكيد الإرسال.
 
-كل شاشة تستقبل `state` وتحدّثه بواسطة `onUpdateState`. لذلك لا توجد حالة
-موازية للأقسام أو النقاط داخل صفحات منفصلة يمكن أن تنحرف عن المصدر الموحد.
+### المخطط العلائقي والهوية
+
+كل صف سحابي مملوك لـ`auth.uid()` وتفرض RLS عزل المستخدمين. ترتبط الدرجات
+بالتلميذ والقسم، وترتبط الحصص والحضور والسلوك بالقسم/التلميذ، بينما تحفظ
+`app_settings` البيانات التكميلية التي لا تستحق جدولاً مستقلاً. لا تعدّل
+المخطط يدوياً ولا تضف جداول بديلة خارج migrations.
+
+### البيانات التجريبية وإعادة الضبط
+
+البيانات الابتدائية في `lib/storage.ts` بيانات عرض فقط وليست workspace قابلة
+للترحيل. إذا كانت السحابة فارغة يُعاد المستخدم إلى حالة فارغة، ولا تُرفع
+بيانات العرض إلى Supabase. وظيفة `reset_workspace` تجريبية ومدمّرة: تحذف
+بيانات المستخدم وملفات المذكرات والتعارضات من السحابة، ولا يمكن التراجع عنها؛
+تستلزم تأكيداً صريحاً ونسخة احتياطية قبل التنفيذ.
 
 ## قواعد المجال المهمة
 
@@ -143,6 +155,10 @@ flowchart LR
 - المظهر فاتح فقط؛ الألوان المعروضة تأتي من متغيرات
   [`app/globals.css`](./app/globals.css).
 - قواعد الطباعة تخفي التنقل وتحسن مخرجات A4.
+- استخدم أشرطة أدوات مدمجة بدلاً من عناوين محتوى مكررة، واحترم أهداف اللمس
+  وRTL، ولا تستخدم `dark:` أو ألوان Hex داخل المكونات.
+- لا تستخدم `alert()` أو `prompt()` أو `confirm()`؛ استخدم `showToast()` و
+  `<ConfirmDialog>`.
 
 للتفاصيل البصرية والتفاعلية راجع [`DESIGN.md`](./DESIGN.md).
 
@@ -150,22 +166,24 @@ flowchart LR
 
 ```text
 app/
-  page.tsx             الحاوية والتنقل والتسجيل
+  page.tsx             حاوية العميل وحدود التفاعل والتنقل بالمسارات
   layout.tsx           RTL والخطوط وToastContainer
   globals.css          Tailwind والمتغيرات والطباعة
+  [...slug]/page.tsx   جسر المسارات المستقلة إلى حاوية التطبيق
   auth/                مسار callback لـ PKCE
   manifest.ts          تعريف PWA
 components/            شاشات التطبيق والمكونات المشتركة
 hooks/
   useCloudAppState.ts  الحالة المحلية، Supabase، والطابور
 lib/
-  storage.ts           AppState والتحقق والنسخ
+  storage.ts           AppState والتحقق وIndexedDB cache
   supabase/            عميل Supabase ومزامنة الحالة
   curriculum-data.ts   المنهاج والساعات
   grade-calculator.ts  الحسابات والإحصاءات
   excel-sync.ts        استيراد الرقمنة
   moumtaze-sync.ts     استيراد الممتاز
-  binary-storage.ts    ملفات IndexedDB
+  binary-storage.ts    ملفات PDF في IndexedDB
+  sync-outbox.ts       طابور revisions في IndexedDB
   backup-archive.ts    أرشيف النسخ واستعادتها
   doc-exporter.ts      تصدير المذكرات إلى Word
 public/memoranda/      ملفات PDF الرسمية المدمجة

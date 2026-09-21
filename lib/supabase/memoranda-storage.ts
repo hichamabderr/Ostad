@@ -1,6 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseBrowserClient } from './browser';
 import type { Database } from './database.types';
+import {
+  enqueueMemorandaDelete,
+  enqueueMemorandaUpload,
+  listMemorandaOutbox,
+  removeMemorandaOutboxEntry,
+} from './memoranda-outbox';
 
 const BUCKET = 'memoranda';
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
@@ -12,12 +18,16 @@ async function checksumForBlob(blob: Blob): Promise<string> {
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-async function currentClient(): Promise<{ client: Client; userId: string } | undefined> {
+async function currentClient(): Promise<{ client: Client; userId: string; workspaceId: string } | undefined> {
   const client = createSupabaseBrowserClient();
   if (!client) return undefined;
   const { data, error } = await client.auth.getUser();
   if (error || !data.user) return undefined;
-  return { client, userId: data.user.id };
+  const workspace = await (client as unknown as {
+    rpc: (name: 'default_workspace_id') => Promise<{ data: string | null; error: Error | null }>;
+  }).rpc('default_workspace_id');
+  if (workspace.error || !workspace.data) return undefined;
+  return { client, userId: data.user.id, workspaceId: workspace.data };
 }
 
 export async function uploadTeacherMemorandum(unitId: string, file: File): Promise<{
@@ -25,13 +35,30 @@ export async function uploadTeacherMemorandum(unitId: string, file: File): Promi
   checksum: string;
 }> {
   const context = await currentClient();
-  if (!context) throw new Error('لا توجد جلسة مستخدم صالحة لرفع الملف.');
+  if (!context) {
+    await enqueueMemorandaUpload(unitId, file);
+    throw new Error('تم حفظ رفع المذكرة محلياً، وستتم المحاولة عند عودة الاتصال.');
+  }
+  try {
+    return await uploadTeacherMemorandumWithContext(context, unitId, file);
+  } catch (error) {
+    await enqueueMemorandaUpload(unitId, file);
+    throw error;
+  }
+}
+
+async function uploadTeacherMemorandumWithContext(
+  context: { client: Client; userId: string; workspaceId: string },
+  unitId: string,
+  file: Blob & { name?: string },
+): Promise<{ storagePath: string; checksum: string }> {
   const checksum = await checksumForBlob(file);
   const storagePath = `users/${context.userId}/${unitId}/current.pdf`;
   const existing = await context.client
     .from('memoranda_files')
     .select('id,storage_path,revision')
     .eq('owner_id', context.userId)
+    .eq('workspace_id' as never, context.workspaceId)
     .eq('unit_id', unitId)
     .eq('is_bundled', false)
     .is('deleted_at', null)
@@ -46,18 +73,19 @@ export async function uploadTeacherMemorandum(unitId: string, file: File): Promi
 
   const metadata = existing.data
     ? await context.client.from('memoranda_files').update({
-        file_name: file.name,
+        file_name: file.name || `${unitId}.pdf`,
         storage_path: storagePath,
         file_size: file.size,
         checksum,
         mime_type: 'application/pdf',
         revision: existing.data.revision + 1,
         deleted_at: null,
-      }).eq('id', existing.data.id).eq('owner_id', context.userId)
+      }).eq('id', existing.data.id).eq('owner_id', context.userId).eq('workspace_id' as never, context.workspaceId)
     : await context.client.from('memoranda_files').insert({
+        workspace_id: context.workspaceId,
         owner_id: context.userId,
         unit_id: unitId,
-        file_name: file.name,
+        file_name: file.name || `${unitId}.pdf`,
         storage_path: storagePath,
         file_size: file.size,
         checksum,
@@ -65,28 +93,55 @@ export async function uploadTeacherMemorandum(unitId: string, file: File): Promi
         is_bundled: false,
         revision: 1,
         deleted_at: null,
-      });
+      } as never);
   if (metadata.error) throw metadata.error;
   if (existing.data && existing.data.storage_path !== storagePath) {
     const removed = await context.client.storage.from(BUCKET).remove([existing.data.storage_path]);
     if (removed.error) throw removed.error;
   }
+
   return { storagePath, checksum };
+}
+
+export async function flushMemorandaOutbox(): Promise<void> {
+  const entries = await listMemorandaOutbox();
+  if (entries.length === 0) return;
+  const context = await currentClient();
+  if (!context) throw new Error('لا توجد جلسة مستخدم صالحة لمزامنة المذكرات.');
+  for (const operation of entries) {
+    if (operation.action === 'upload') {
+      await uploadTeacherMemorandumWithContext(context, operation.unitId, operation.file);
+    } else {
+      await deleteTeacherMemorandumWithContext(context, operation.storagePath);
+    }
+    await removeMemorandaOutboxEntry(operation.id);
+  }
 }
 
 export async function getMemorandumUrl(unitId: string): Promise<string | undefined> {
   const context = await currentClient();
   if (!context) return undefined;
-  const metadata = await context.client
+  const owned = await context.client
     .from('memoranda_files')
     .select('storage_path')
+    .eq('workspace_id' as never, context.workspaceId)
+    .eq('owner_id', context.userId)
     .eq('unit_id', unitId)
     .is('deleted_at', null)
-    .or(`is_bundled.eq.true,owner_id.eq.${context.userId}`)
-    .order('is_bundled', { ascending: true })
     .limit(1)
     .maybeSingle();
-  if (metadata.error || !metadata.data) return undefined;
+  const bundled = owned.data ? null : await context.client
+    .from('memoranda_files')
+    .select('storage_path')
+    .eq('workspace_id' as never, context.workspaceId)
+    .eq('owner_id', context.userId)
+    .eq('is_bundled', true)
+    .like('storage_path', `bundled/%/${unitId}.pdf`)
+    .is('deleted_at', null)
+    .limit(1)
+    .maybeSingle();
+  const metadata = owned.data ? owned : bundled;
+  if (owned.error || (bundled && bundled.error) || !metadata?.data) return undefined;
   const signed = await context.client.storage
     .from(BUCKET)
     .createSignedUrl(metadata.data.storage_path, SIGNED_URL_TTL_SECONDS);
@@ -95,13 +150,29 @@ export async function getMemorandumUrl(unitId: string): Promise<string | undefin
 
 export async function deleteTeacherMemorandum(storagePath: string): Promise<void> {
   const context = await currentClient();
-  if (!context) return;
+  if (!context) {
+    await enqueueMemorandaDelete(storagePath);
+    throw new Error('تم حفظ حذف المذكرة محلياً، وستتم المحاولة عند عودة الاتصال.');
+  }
+  try {
+    await deleteTeacherMemorandumWithContext(context, storagePath);
+  } catch (error) {
+    await enqueueMemorandaDelete(storagePath);
+    throw error;
+  }
+}
+
+async function deleteTeacherMemorandumWithContext(
+  context: { client: Client; userId: string; workspaceId: string },
+  storagePath: string,
+): Promise<void> {
   const removed = await context.client.storage.from(BUCKET).remove([storagePath]);
   if (removed.error) throw removed.error;
   const metadata = await context.client
     .from('memoranda_files')
     .delete()
     .eq('storage_path', storagePath)
-    .eq('owner_id', context.userId);
+    .eq('owner_id', context.userId)
+    .eq('workspace_id' as never, context.workspaceId);
   if (metadata.error) throw metadata.error;
 }

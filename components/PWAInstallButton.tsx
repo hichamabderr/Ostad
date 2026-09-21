@@ -39,7 +39,7 @@ export const PWAInstallButton: React.FC = () => {
         {showIOSGuide && (
           <AccessibleDialog open={showIOSGuide} titleId="ios-install-title" onClose={() => setShowIOSGuide(false)} className="bg-white rounded-xl p-5 max-w-sm w-full shadow-2xl space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h3 id="ios-install-title" className="font-bold text-[#1A1C1E] text-lg">تثبيت التطبيق (iOS)</h3>
+                <h3 id="ios-install-title" className="font-bold text-[var(--text-primary)] text-lg">تثبيت التطبيق (iOS)</h3>
                 <button
                   onClick={() => setShowIOSGuide(false)}
                   className="text-slate-400 hover:text-slate-700 transition-colors p-1 rounded-lg" >

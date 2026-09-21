@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AppState, exportBackupJSON, isDemoState } from '@/lib/storage';
 import { getLocalDateString } from '@/lib/date-utils';
 import { SanadTab } from './SidebarSanad';
@@ -8,6 +8,14 @@ import { OFFICIAL_CURRICULUM } from '@/lib/curriculum-data';
 import { ConfirmDialog } from './ConfirmDialog';
 import { showToast } from './Toast';
 import { v4 as uuidv4 } from 'uuid';
+import { type UrgentTask } from '@/lib/dashboard-tasks';
+import {
+  selectActiveClass,
+  selectLessonProgressByClass,
+  selectSessionsByClass,
+  selectStudentsByClass,
+  selectTimetableByClass,
+} from '@/lib/state-selectors';
 import {
   Clock,
   BookOpen,
@@ -39,36 +47,18 @@ interface DashboardProps {
   onResetWorkspace?: () => Promise<void>;
 }
 
-interface UrgentTask {
-  id: string;
-  text: string;
-  done: boolean;
-}
-
 export const Dashboard: React.FC<DashboardProps> = ({
   state,
   onNavigate,
   onUpdateState,
   onResetWorkspace,
 }) => {
-  // Urgent tasks state with localStorage persistence
-  const [tasks, setTasks] = useState<UrgentTask[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('sanad_urgent_tasks');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch {
-          // fallback
-        }
-      }
-    }
-    return [
+  const defaultTasks: UrgentTask[] = [
       { id: 't-1', text: 'تصدير قائمة التلاميذ (2 ع ت) للرقمنة', done: false },
       { id: 't-2', text: 'تجهيز مذكرة الفقه وأصوله (الربا)', done: true },
       { id: 't-3', text: 'تحليل نتائج مجلس قسم 3 آداب وفلسفة', done: false }
     ];
-  });
+  const tasks = state.dashboardTasks || defaultTasks;
 
   const [newTaskText, setNewTaskText] = useState('');
   const [showTaskInput, setShowTaskInput] = useState(false);
@@ -77,10 +67,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [resetWorkspaceRequested, setResetWorkspaceRequested] = useState(false);
 
   const saveTasks = (newTasks: UrgentTask[]) => {
-    setTasks(newTasks);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('sanad_urgent_tasks', JSON.stringify(newTasks));
-    }
+    onUpdateState((previous) => ({ ...previous, dashboardTasks: newTasks }));
   };
 
   const toggleTask = (id: string) => {
@@ -143,25 +130,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
     todaySlots.find(s => s.startTime > currentTimeStr) ??
     null;
   const activeSlotClass = activeSlot ? state.classes.find(c => c.id === activeSlot.classId) : null;
-  const activeClass = state.classes.find(c => c.id === state.activeClassId) || state.classes[0];
-  const activeClassStudents = activeClass
-    ? state.students.filter(student => student.classId === activeClass.id)
-    : [];
-  const activeClassSessions = activeClass
-    ? state.sessions
-        .filter(session => session.classId === activeClass.id)
-        .sort((a, b) => b.date.localeCompare(a.date))
-    : [];
-  const activeClassSlots = activeClass
-    ? state.timetable
-        .filter(slot => slot.classId === activeClass.id)
-        .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.startTime.localeCompare(b.startTime))
-    : [];
-  const activeClassCompletedUnits = activeClass
-    ? state.lessonProgress.filter(
-        progress => progress.classId === activeClass.id && progress.status === 'COMPLETED'
-      ).length
-    : 0;
+  const activeClass = selectActiveClass(state);
+  const activeClassStudents = selectStudentsByClass(state, activeClass?.id ?? null);
+  const activeClassSessions = selectSessionsByClass(state, activeClass?.id ?? null)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const activeClassSlots = selectTimetableByClass(state, activeClass?.id ?? null)
+    .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.startTime.localeCompare(b.startTime));
+  const activeClassCompletedUnits = selectLessonProgressByClass(state, activeClass?.id ?? null)
+    .filter(progress => progress.status === 'COMPLETED').length;
   const classSummaries = state.classes.map(cls => ({
     ...cls,
     studentCount: state.students.filter(student => student.classId === cls.id).length,
@@ -583,15 +559,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       key={slot.id}
                       className={`flex items-center justify-between p-3 rounded-xl border text-xs transition-colors ${
                         isCurrent
-                          ? 'bg-[var(--primary-soft)]/60 border-[var(--primary)] font-bold' : 'bg-[#FAF8F4] border-[#DDD7CB] text-[#475569]' }`}
+                          ? 'bg-[var(--primary-soft)]/60 border-[var(--primary)] font-bold' : 'bg-[var(--bg-page)] border-[var(--border-default)] text-[var(--text-secondary)]' }`}
                     >
                       <div className="flex items-center gap-3">
-                        <span className="font-mono text-[#0F172A] font-semibold">{slot.startTime} - {slot.endTime}</span>
-                        <span className="font-bold text-[#0F172A]">{cls?.name || 'قسم'}</span>
-                        <span className="text-[#64748B] hidden sm:inline">{cls?.stream}</span>
+                        <span className="font-mono text-[var(--text-primary)] font-semibold">{slot.startTime} - {slot.endTime}</span>
+                        <span className="font-bold text-[var(--text-primary)]">{cls?.name || 'قسم'}</span>
+                        <span className="text-[var(--text-secondary)] hidden sm:inline">{cls?.stream}</span>
                       </div>
                       <span className={`text-[11px] px-2 py-0.5 rounded ${
-                        isCurrent ? 'bg-[var(--primary)] text-white' : 'text-[#64748B]' }`}>
+                        isCurrent ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-secondary)]' }`}>
                         {isCurrent ? 'الحصة الحالية' : 'مجدولة'}
                       </span>
                     </div>
@@ -602,9 +578,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
           )}
 
           {/* Recent Recorded Sessions */}
-          <div className="bg-white rounded-2xl border border-[#DDD7CB] p-6 shadow-xs space-y-4">
+          <div className="bg-white rounded-2xl border border-[var(--border-default)] p-6 shadow-xs space-y-4">
             <div className="flex items-center justify-between">
-              <h4 className="font-black text-sm text-[#0F172A] font-display">
+              <h4 className="font-black text-sm text-[var(--text-primary)] font-display">
                 آخر الحصص الموثقة في الدفتر اليومي
               </h4>
               <button
@@ -615,14 +591,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </button>
             </div>
 
-            <div className="divide-y divide-[#EBE6DC] text-xs">
+            <div className="divide-y divide-[var(--border-subtle)] text-xs">
               {state.sessions.slice(0, 3).map(ses => {
                 const cls = state.classes.find(c => c.id === ses.classId);
                 return (
                   <div key={ses.id} className="py-3 flex items-center justify-between gap-4 first:pt-0 last:pb-0">
                     <div>
-                      <div className="font-bold text-[#0F172A]">{cls?.name || 'قسم'} • {ses.customTopic || 'حصة عادية'}</div>
-                      <div className="text-[11px] text-[#64748B] mt-0.5">{ses.date} ({ses.startTime} - {ses.endTime})</div>
+                      <div className="font-bold text-[var(--text-primary)]">{cls?.name || 'قسم'} • {ses.customTopic || 'حصة عادية'}</div>
+                      <div className="text-[11px] text-[var(--text-secondary)] mt-0.5">{ses.date} ({ses.startTime} - {ses.endTime})</div>
                     </div>
                     <span className="text-[11px] font-bold text-[var(--primary)] bg-[var(--primary-soft)] px-2.5 py-0.5 rounded-full shrink-0">
                       موثقة
@@ -631,7 +607,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 );
               })}
               {state.sessions.length === 0 && (
-                <p className="text-xs text-[#64748B] py-4 text-center">لم يتم تسجيل حصص بعد في الدفتر اليومي.</p>
+                <p className="text-xs text-[var(--text-secondary)] py-4 text-center">لم يتم تسجيل حصص بعد في الدفتر اليومي.</p>
               )}
             </div>
           </div>
@@ -693,9 +669,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
 
           {/* Urgent Tasks & Follow-up Checklist */}
-          <div className="bg-white rounded-2xl border border-[#DDD7CB] p-5 shadow-xs space-y-3">
-            <div className="flex items-center justify-between border-b border-[#EBE6DC] pb-2.5">
-              <h4 className="font-black text-xs text-[#64748B] tracking-wider uppercase flex items-center gap-1.5">
+          <div className="bg-white rounded-2xl border border-[var(--border-default)] p-5 shadow-xs space-y-3">
+            <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-2.5">
+              <h4 className="font-black text-xs text-[var(--text-secondary)] tracking-wider uppercase flex items-center gap-1.5">
                 <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
                 <span>متابعات ومهام عاجلة</span>
               </h4>
@@ -713,7 +689,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   type="text" placeholder="مهمة جديدة..." value={newTaskText}
                   onChange={e => setNewTaskText(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && addTask()}
-                  className="flex-1 px-3 py-1.5 rounded-lg border border-[#DDD7CB] text-xs font-medium focus:outline-[var(--primary)]" autoFocus
+                  className="flex-1 px-3 py-1.5 rounded-lg border border-[var(--border-default)] text-xs font-medium focus:outline-[var(--primary)]" autoFocus
                 />
                 <button
                   onClick={addTask}
@@ -729,7 +705,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   key={task.id}
                   className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${
                     task.done
-                      ? 'bg-[#FAF8F4] border-[#DDD7CB] text-[#64748B] line-through' : 'bg-white border-[#DDD7CB] text-[#0F172A]' }`}
+                      ? 'bg-[var(--bg-page)] border-[var(--border-default)] text-[var(--text-secondary)] line-through' : 'bg-white border-[var(--border-default)] text-[var(--text-primary)]' }`}
                 >
                   <button
                     onClick={() => toggleTask(task.id)}
@@ -737,13 +713,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     {task.done ? (
                       <CheckSquare className="w-3.5 h-3.5 text-[var(--primary)] shrink-0" />
                     ) : (
-                      <Square className="w-3.5 h-3.5 text-[#64748B] shrink-0" />
+                      <Square className="w-3.5 h-3.5 text-[var(--text-secondary)] shrink-0" />
                     )}
                     <span className="font-medium">{task.text}</span>
                   </button>
                   <button
                     onClick={() => setTaskToDeleteId(task.id)}
-                    className="text-[#64748B] hover:text-rose-600 p-1 cursor-pointer transition-colors" >
+                    className="text-[var(--text-secondary)] hover:text-rose-600 p-1 cursor-pointer transition-colors" >
                     <Trash2 className="w-3 h-3" />
                   </button>
                 </div>
