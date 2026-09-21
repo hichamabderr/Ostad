@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import type * as XLSX from 'xlsx';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { GradeLevel, Student, StudentGrade } from './types';
 import { v4 as uuidv4 } from 'uuid';
@@ -228,6 +228,7 @@ export function detectSheetColumnIndices(data: any[][]): SheetColumnIndices {
 export async function parseDigitizationFile(
   file: File
 ): Promise<ParsedDigitizationResult> {
+  const XLSX = await import('xlsx');
   validateExcelFile(file);
   const arrayBuffer = await file.arrayBuffer();
 
@@ -426,6 +427,7 @@ export async function injectGradesIntoFile(
   students: Student[],
   grades: StudentGrade[]
 ): Promise<{ blob: Blob; matchedStudents: number; gradesWritten: number }> {
+  const XLSX = await import('xlsx');
   validateExcelFile(file);
   const arrayBuffer = await file.arrayBuffer();
   const originalZip = unzipSync(new Uint8Array(arrayBuffer));

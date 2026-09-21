@@ -52,7 +52,7 @@ const DAYS: { dayOfWeek: 0 | 1 | 2 | 3 | 4; name: string }[] = [
 ];
 
 export const TimetableSanad: React.FC<TimetableSanadProps> = () => {
-  const { state, updateState: onUpdateState } = useAppState();
+  const { state, updateStateAndWait } = useAppState();
  const [isModalOpen, setIsModalOpen] = useState(false);
  const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
  const [deleteConfirmSlotId, setDeleteConfirmSlotId] = useState<string | null>(null);
@@ -115,7 +115,7 @@ export const TimetableSanad: React.FC<TimetableSanadProps> = () => {
    setIsModalOpen(true);
  };
 
- const handleSaveSlot = (e: React.FormEvent) => {
+ const handleSaveSlot = async (e: React.FormEvent) => {
  e.preventDefault();
  if (!selectedClassId) {
    showToast('يرجى اختيار الفوج أولاً قبل الحفظ.', 'error');
@@ -178,23 +178,34 @@ export const TimetableSanad: React.FC<TimetableSanadProps> = () => {
  room: finalRoom
  };
 
- onUpdateState(prev => ({
- ...prev,
- timetable: editingSlotId
-   ? prev.timetable.map(slot => (slot.id === editingSlotId ? newSlot : slot))
-   : [...prev.timetable, newSlot]
- }));
-
- setIsModalOpen(false);
- setEditingSlotId(null);
+ try {
+   await updateStateAndWait(prev => ({
+     ...prev,
+     timetable: editingSlotId
+       ? prev.timetable.map(slot => (slot.id === editingSlotId ? newSlot : slot))
+       : [...prev.timetable, newSlot]
+   }));
+   setIsModalOpen(false);
+   setEditingSlotId(null);
+   showToast('تم حفظ حصة التوقيت ومزامنتها مع Supabase.', 'success');
+ } catch (error: unknown) {
+   console.error('Timetable slot sync failed:', error);
+   showToast(error instanceof Error ? error.message : 'تعذر مزامنة حصة التوقيت.', 'error');
+ }
  };
 
- const handleDeleteSlot = (slotId: string) => {
- onUpdateState(prev => ({
- ...prev,
- timetable: prev.timetable.filter(s => s.id !== slotId)
- }));
- setDeleteConfirmSlotId(null);
+ const handleDeleteSlot = async (slotId: string) => {
+ try {
+   await updateStateAndWait(prev => ({
+     ...prev,
+     timetable: prev.timetable.filter(s => s.id !== slotId)
+   }));
+   setDeleteConfirmSlotId(null);
+   showToast('تم حذف حصة التوقيت ومزامنة الحذف مع Supabase.', 'success');
+ } catch (error: unknown) {
+   console.error('Timetable slot deletion sync failed:', error);
+   showToast(error instanceof Error ? error.message : 'تعذر مزامنة حذف حصة التوقيت.', 'error');
+ }
  };
 
  const handleExportDoc = () => {

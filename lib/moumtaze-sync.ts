@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import { GradeLevel } from './types';
 import { detectLevelAndStream, isSchoolSummaryOrFooterRow } from './excel-sync';
 import { normalizeClassName, getCanonicalClassName } from './name-normalizer';
@@ -56,16 +55,9 @@ function formatExcelDate(val: any): string {
   // Check if Excel numeric serial date (e.g. 39299 = 2007-08-07)
   const num = Number(val);
   if (!isNaN(num) && num > 20000 && num < 60000) {
-    try {
-      const parsed = XLSX.SSF.parse_date_code(num);
-      if (parsed && parsed.y) {
-        const y = parsed.y;
-        const m = String(parsed.m).padStart(2, '0');
-        const d = String(parsed.d).padStart(2, '0');
-        return `${y}-${m}-${d}`;
-      }
-    } catch {
-      // Fallback
+    const date = new Date(Date.UTC(1899, 11, 30) + Math.floor(num) * 86400000);
+    if (!Number.isNaN(date.getTime())) {
+      return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
     }
   }
 
@@ -86,6 +78,7 @@ function isIgnoredAdminSheet(sheetName: string): boolean {
  * Parses an Algerian "الممتاز" (Moumtaze) Excel workbook containing school class rosters.
  */
 export async function parseMoumtazeFile(file: File): Promise<ParsedMoumtazeResult> {
+  const XLSX = await import('xlsx');
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, {
     type: 'array',
