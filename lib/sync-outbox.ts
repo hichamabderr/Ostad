@@ -26,6 +26,17 @@ export interface SyncOutboxEntry {
   lastError?: string;
 }
 
+export interface SyncConflictDescriptor {
+  entity: SyncEntity;
+  recordId: string;
+  outboxId: string;
+  operationId: string;
+  localRevision: number;
+  remoteRevision: number;
+  localPayload?: unknown;
+  remotePayload?: unknown;
+}
+
 const OUTBOX_PREFIX = 'sanad:sync-outbox:';
 const DEVICE_ID_KEY = 'sanad:sync-device-id';
 const outboxKey = (id: string) => `${OUTBOX_PREFIX}${id}`;

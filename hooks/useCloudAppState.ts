@@ -7,7 +7,7 @@ import { loadAppStateCache, saveAppStateCache } from '@/lib/state-cache';
 import { clearTeacherBinaryFiles } from '@/lib/binary-storage';
 import { clearDashboardTasks } from '@/lib/dashboard-tasks';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
-import { applySyncOutboxEntry, loadCoreState, resetCloudWorkspace } from '@/lib/supabase/core-sync';
+import { applySyncOutboxEntry, loadCoreState, resetCloudWorkspace, SyncConflictError } from '@/lib/supabase/core-sync';
 import { flushMemorandaOutbox } from '@/lib/supabase/memoranda-storage';
 import {
   enqueueSyncState,
@@ -16,6 +16,8 @@ import {
   removeSyncOutboxEntry,
   clearSyncOutbox,
   markSyncOutboxFailure,
+  enqueueSyncOperations,
+  type SyncConflictDescriptor,
 } from '@/lib/sync-outbox';
 import { clearMemorandaOutbox } from '@/lib/supabase/memoranda-outbox';
 import { flushAvatarOutbox } from '@/lib/supabase/avatar-storage';
@@ -39,7 +41,17 @@ function describeCloudError(error: unknown): Error {
       .join(' | ');
     if (parts) return new Error(parts);
   }
+
   return new Error('تعذر الوصول إلى بيانات Supabase. تحقق من تطبيق migration والصلاحيات وRLS.');
+}
+
+function getStateRecord(state: AppState, entity: SyncConflictDescriptor['entity'], recordId: string): unknown {
+  const collections: Record<string, unknown[] | undefined> = {
+    class: state.classes, student: state.students, grade: state.grades, session: state.sessions,
+    timetable: state.timetable, lessonProgress: state.lessonProgress, customUnit: state.customUnits,
+    lessonPlan: state.lessonPlans, dashboardTask: state.dashboardTasks,
+  };
+  return collections[entity]?.find((record) => (record as { id?: string }).id === recordId);
 }
 
 function isLocalOnlyCloudError(error: unknown): boolean {
@@ -156,6 +168,7 @@ export function useCloudAppState(user: User | null) {
   );
   const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus>(() => (user ? 'loading' : 'ready'));
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [conflicts, setConflicts] = useState<SyncConflictDescriptor[]>([]);
   const cloudStatusRef = useRef<CloudSyncStatus>(cloudStatus);
   const [localStorageError, setLocalStorageError] = useState<string | null>(null);
   const cloudReady = !user || cloudStatus !== 'loading';
@@ -165,6 +178,38 @@ export function useCloudAppState(user: User | null) {
   const latestStateRef = useRef(state);
   const revisionRef = useRef(0);
   const updatedAtRef = useRef(new Date(0).toISOString());
+
+  const registerConflict = async (error: unknown): Promise<void> => {
+    if (!(error instanceof SyncConflictError) || !user) return;
+    const entry = (await listSyncOutbox(user.id)).find((item) =>
+      item.operations.some((operation) =>
+        operation.entity === error.entity && operation.recordId === error.recordId,
+      ),
+    );
+    const operation = entry?.operations.find((item) =>
+      item.entity === error.entity && item.recordId === error.recordId,
+    );
+    if (!entry || !operation) return;
+    const client = createSupabaseBrowserClient();
+    if (!client) return;
+    let remoteState: AppState;
+    try {
+      remoteState = await loadCoreState(client, latestStateRef.current);
+    } catch (remoteError) {
+      setSyncError(describeCloudError(remoteError).message);
+      return;
+    }
+    setConflicts((current) => [{
+      entity: error.entity,
+      recordId: error.recordId,
+      outboxId: entry.id,
+      operationId: operation.id,
+      localRevision: error.localRevision,
+      remoteRevision: error.remoteRevision,
+      localPayload: operation.payload,
+      remotePayload: getStateRecord(remoteState, error.entity, error.recordId),
+    }, ...current.filter((item) => item.outboxId !== entry.id)]);
+  };
 
   useEffect(() => {
     cloudStatusRef.current = cloudStatus;
@@ -306,6 +351,7 @@ export function useCloudAppState(user: User | null) {
           const message = describeCloudError(error).message;
           setSyncError(message);
           setCloudStatus(error instanceof Error && error.name === 'SyncConflictError' ? 'conflict' : 'sync-failed');
+          void registerConflict(error);
           console.error('Cloud state save failed:', message);
         }))
         .then(async (flushed) => {
@@ -367,7 +413,7 @@ export function useCloudAppState(user: User | null) {
   }, [user?.id]);
 
   const retrySync = async (): Promise<void> => {
-    if (!user || syncingRef.current) return;
+    if (!user || syncingRef.current || cloudStatusRef.current === 'conflict') return;
     const client = createSupabaseBrowserClient();
     if (!client) {
       setCloudStatus('local-only');
@@ -379,7 +425,9 @@ export function useCloudAppState(user: User | null) {
       const message = describeCloudError(error).message;
       setSyncError(message);
       setCloudStatus(error instanceof Error && error.name === 'SyncConflictError' ? 'conflict' : 'sync-failed');
+      void registerConflict(error);
       console.error('Cloud sync retry failed:', message);
+      void registerConflict(error);
     });
     if (!flushed || (await listSyncOutbox(user.id)).length > 0) return;
     try {
@@ -393,6 +441,50 @@ export function useCloudAppState(user: User | null) {
       setCloudStatus('sync-failed');
       console.error('Cloud sync retry failed:', message);
     }
+  };
+
+  const resolveConflictKeepRemote = async (conflict: SyncConflictDescriptor): Promise<void> => {
+    if (!user) throw new Error('لا يمكن حل التعارض دون تسجيل الدخول إلى Supabase.');
+    const client = createSupabaseBrowserClient();
+    if (!client) throw new Error('لا يمكن حل التعارض دون اتصال Supabase.');
+    await removeSyncOutboxEntry(conflict.outboxId);
+    const remoteState = await loadCoreState(client, latestStateRef.current);
+    latestStateRef.current = remoteState;
+    setState(remoteState);
+    setConflicts((current) => current.filter((item) => item.outboxId !== conflict.outboxId));
+    setSyncError(null);
+    setCloudStatus('ready');
+  };
+
+  const resolveConflictKeepLocal = async (conflict: SyncConflictDescriptor): Promise<void> => {
+    if (!user) throw new Error('لا يمكن حل التعارض دون تسجيل الدخول إلى Supabase.');
+    const client = createSupabaseBrowserClient();
+    if (!client) throw new Error('لا يمكن حل التعارض دون اتصال Supabase.');
+    const entries = await listSyncOutbox(user.id);
+    const entry = entries.find((item) => item.id === conflict.outboxId);
+    if (!entry) throw new Error('لم تعد عملية التعارض موجودة في طابور المزامنة.');
+    const operations = entry.operations.map((operation) => ({
+      ...operation,
+      id: `${operation.id}:${globalThis.crypto.randomUUID()}`,
+    }));
+    await removeSyncOutboxEntry(entry.id);
+    const remoteRevision = Math.max(conflict.remoteRevision, revisionRef.current);
+    revisionRef.current = remoteRevision + 1;
+    await enqueueSyncOperations(user.id, operations, revisionRef.current, new Date().toISOString());
+    setConflicts((current) => current.filter((item) => item.outboxId !== conflict.outboxId));
+    setCloudStatus('sync-pending');
+    setSyncError(null);
+    const flushed = await flushSyncOutbox(client, user.id, syncingRef, (error) => {
+      setSyncError(describeCloudError(error).message);
+      setCloudStatus(error instanceof SyncConflictError ? 'conflict' : 'sync-failed');
+    });
+    if (!flushed || (await listSyncOutbox(user.id)).length > 0) {
+      throw new Error('تعذر تأكيد النسخة المحلية بعد حل التعارض.');
+    }
+    const remoteState = await loadCoreState(client, latestStateRef.current);
+    latestStateRef.current = remoteState;
+    setState(remoteState);
+    setCloudStatus('ready');
   };
 
   const handleUpdateState = (updater: (previous: AppState) => AppState) => {
@@ -521,6 +613,7 @@ export function useCloudAppState(user: User | null) {
       const message = describeCloudError(error).message;
       setSyncError(message);
       setCloudStatus(error instanceof Error && error.name === 'SyncConflictError' ? 'conflict' : 'sync-failed');
+      void registerConflict(error);
     });
     if (!flushed || (await listSyncOutbox(user.id)).length > 0) {
       throw new Error('تعذر تأكيد حذف الأقسام والتلاميذ في Supabase.');
@@ -572,5 +665,8 @@ export function useCloudAppState(user: User | null) {
     syncError,
     localStorageError,
     retrySync,
+    conflicts,
+    resolveConflictKeepRemote,
+    resolveConflictKeepLocal,
   };
 }

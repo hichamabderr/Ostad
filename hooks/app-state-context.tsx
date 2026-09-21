@@ -2,6 +2,7 @@
 
 import { createContext, useContext, type ReactNode } from 'react';
 import type { AppState } from '@/lib/storage';
+import type { SyncConflictDescriptor } from '@/lib/sync-outbox';
 
 export type AppStateUpdater = (updater: (previous: AppState) => AppState) => void;
 export type AppStateSyncUpdater = (updater: (previous: AppState) => AppState) => Promise<void>;
@@ -13,6 +14,9 @@ export interface AppStateContextValue {
   replaceStateFromBackup: (state: AppState) => Promise<void>;
   clearRosterData: () => Promise<void>;
   resetWorkspace: () => Promise<void>;
+  conflicts: SyncConflictDescriptor[];
+  resolveConflictKeepRemote: (conflict: SyncConflictDescriptor) => Promise<void>;
+  resolveConflictKeepLocal: (conflict: SyncConflictDescriptor) => Promise<void>;
 }
 
 const AppStateContext = createContext<AppStateContextValue | null>(null);

@@ -11,6 +11,7 @@ import { SidebarSanad, SanadTab } from "@/components/SidebarSanad";
 import { TopHeaderSanad } from "@/components/TopHeaderSanad";
 import { MobileNavigation } from "@/components/MobileNavigation";
 import { OfflineIndicator } from "@/components/OfflineIndicator";
+import { SyncConflictDialog } from "@/components/SyncConflictDialog";
 import { AuthGate } from "@/components/AuthGate";
 import { ComingSoon } from "@/components/ComingSoon";
 import { CurriculumUnit } from "@/lib/types";
@@ -136,7 +137,13 @@ function AppContent({
     syncError,
     localStorageError,
     retrySync,
+    conflicts,
+    resolveConflictKeepRemote,
+    resolveConflictKeepLocal,
   } = useCloudAppState(user);
+  const [conflictBusy, setConflictBusy] = useState(false);
+  const [conflictError, setConflictError] = useState<string | null>(null);
+  const [isConflictOpen, setIsConflictOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const currentTab = ROUTE_TABS[pathname] ?? "dashboard";
@@ -223,6 +230,9 @@ function AppContent({
       replaceStateFromBackup,
       clearRosterData,
       resetWorkspace,
+      conflicts,
+      resolveConflictKeepRemote,
+      resolveConflictKeepLocal,
     }}>
     <div
       className="min-h-screen flex flex-row bg-[var(--bg-page)] text-[var(--text-primary)]"
@@ -374,7 +384,33 @@ function AppContent({
         syncError={syncError}
         localStorageError={localStorageError}
         onRetry={retrySync}
+        onOpenConflict={() => setIsConflictOpen(true)}
       />
+      <SyncConflictDialog
+        conflict={isConflictOpen ? conflicts[0] || null : null}
+        busy={conflictBusy}
+        onKeepRemote={async () => {
+          setConflictBusy(true);
+          setConflictError(null);
+          try {
+            if (conflicts[0]) await resolveConflictKeepRemote(conflicts[0]);
+            setIsConflictOpen(false);
+          } catch (error) {
+            setConflictError(error instanceof Error ? error.message : "تعذر حل التعارض.");
+          } finally { setConflictBusy(false); }
+        }}
+        onKeepLocal={async () => {
+          setConflictBusy(true);
+          setConflictError(null);
+          try {
+            if (conflicts[0]) await resolveConflictKeepLocal(conflicts[0]);
+            setIsConflictOpen(false);
+          } catch (error) {
+            setConflictError(error instanceof Error ? error.message : "تعذر حل التعارض.");
+          } finally { setConflictBusy(false); }
+        }}
+      />
+      {conflictError && <div role="alert" className="fixed bottom-4 left-4 z-[10001] rounded-xl bg-rose-700 px-4 py-2 text-sm font-bold text-white">{conflictError}</div>}
     </div>
     </AppStateProvider>
   );

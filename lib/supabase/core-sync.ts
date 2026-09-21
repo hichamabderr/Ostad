@@ -240,7 +240,7 @@ async function applyOperationOnce(client: AnyClient, ownerId: string, workspace:
       remote_revision: remoteRevision,
       local_device_id: metadata.deviceId,
       remote_device_id: remoteDevice,
-      resolution: 'last-write-wins',
+      resolution: 'pending',
     });
     if (conflict.error) throw conflict.error;
     throw new SyncConflictError(operation.entity, operation.recordId, remoteRevision, metadata.revision);
