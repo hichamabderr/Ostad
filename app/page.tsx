@@ -249,6 +249,9 @@ function AppContent({
           onUpdateState={handleUpdateState}
           onOpenSearch={() => setIsSearchOpen(true)}
           onToggleMobileSidebar={() => setIsMobileSidebarOpen((prev) => !prev)}
+          cloudStatus={cloudStatus}
+          syncError={syncError}
+          onRetrySync={retrySync}
         />
 
         {/* View Content Area (with bottom padding for Mobile Navigation bar) */}

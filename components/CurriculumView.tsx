@@ -82,13 +82,17 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const getUnitNote = (unitId: string): string => {
-    const prog = state.lessonProgress.find(p => p.unitId === unitId);
+    const prog = state.lessonProgress.find(
+      p => p.classId === state.activeClassId && p.unitId === unitId,
+    );
     return prog?.notes || '';
   };
 
   const handleSaveUnitNote = (unitId: string) => {
     onUpdateState(prev => {
-      const existingIdx = prev.lessonProgress.findIndex(p => p.unitId === unitId);
+      const existingIdx = prev.lessonProgress.findIndex(
+        p => p.classId === prev.activeClassId && p.unitId === unitId,
+      );
       let updated = [...prev.lessonProgress];
       if (existingIdx >= 0) {
         updated[existingIdx] = {

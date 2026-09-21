@@ -6,6 +6,7 @@ import React, { useEffect } from "react";
 import { PWAInstallButton } from "./PWAInstallButton";
 import { SanadTab } from "./SidebarSanad";
 import { selectActiveClass, selectStudentsByClass } from "@/lib/state-selectors";
+import type { CloudSyncStatus } from "@/hooks/useCloudAppState";
 
 interface TopHeaderSanadProps {
   currentTab: SanadTab;
@@ -13,6 +14,9 @@ interface TopHeaderSanadProps {
   onUpdateState: (updater: (prev: AppState) => AppState) => void;
   onOpenSearch: () => void;
   onToggleMobileSidebar: () => void;
+  cloudStatus?: CloudSyncStatus;
+  syncError?: string | null;
+  onRetrySync?: () => void;
 }
 
 const TAB_TITLES: Record<SanadTab, { title: string; subtitle?: string }> = {
@@ -66,6 +70,9 @@ export const TopHeaderSanad: React.FC<TopHeaderSanadProps> = ({
   onUpdateState,
   onOpenSearch,
   onToggleMobileSidebar,
+  cloudStatus = "ready",
+  syncError,
+  onRetrySync,
 }) => {
   const currentInfo = TAB_TITLES[currentTab] || { title: "معين" };
   const activeClass = selectActiveClass(state);
@@ -97,6 +104,14 @@ export const TopHeaderSanad: React.FC<TopHeaderSanadProps> = ({
     "ديسمبر",
   ];
   const gregorianDate = `${dayNames[today.getDay()]} ${today.getDate()} ${monthNames[today.getMonth()]} ${today.getFullYear()} م`;
+  const syncStatus = {
+    loading: { label: "جاري التحميل", className: "text-[var(--text-secondary)]" },
+    ready: { label: "متزامن", className: "text-[var(--success)]" },
+    "sync-pending": { label: "قيد المزامنة", className: "text-[var(--warning)]" },
+    "sync-failed": { label: "فشل المزامنة", className: "text-[var(--danger)]" },
+    conflict: { label: "تعارض يحتاج مراجعة", className: "text-[var(--danger)]" },
+    "local-only": { label: "محلي فقط", className: "text-[var(--warning)]" },
+  }[cloudStatus];
 
   // Automatic Hijri date
   const hijriDate = (() => {
@@ -178,6 +193,22 @@ export const TopHeaderSanad: React.FC<TopHeaderSanadProps> = ({
           </button>
 
           <PWAInstallButton />
+          <div
+            className={`hidden sm:flex items-center gap-1.5 text-[10px] font-bold ${syncStatus.className}`}
+            title={syncError || syncStatus.label}
+            aria-live="polite">
+            <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+            <span>{syncStatus.label}</span>
+            {cloudStatus !== "ready" && cloudStatus !== "loading" && onRetrySync && (
+              <button
+                type="button"
+                onClick={onRetrySync}
+                className="underline underline-offset-2"
+                aria-label="إعادة محاولة المزامنة">
+                إعادة المحاولة
+              </button>
+            )}
+          </div>
 
         </div>
       </div>
