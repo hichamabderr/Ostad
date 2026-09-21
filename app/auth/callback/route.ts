@@ -4,13 +4,29 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const origin = getPublicAppUrl() ?? getPublicOrigin(request, url);
+  const requestOrigin = getPublicOrigin(request, url);
+  const configuredOrigin = getPublicAppUrl();
+  const origin = requestOrigin ?? configuredOrigin ?? url.origin;
   const code = url.searchParams.get('code');
   const next = url.searchParams.get('next');
   const safeNext = next?.startsWith('/') && !next.startsWith('//') ? next : '/';
 
   if (!code) {
     return NextResponse.redirect(new URL('/?auth=error&reason=missing_code', origin));
+  }
+
+  // Supabase can fall back to its Site URL after the provider callback. Forward
+  // the still-unused code to the canonical app origin so the PKCE cookie created
+  // there is available for the exchange.
+  if (
+    configuredOrigin &&
+    configuredOrigin !== requestOrigin &&
+    url.hostname.endsWith('.vercel.app')
+  ) {
+    const canonicalCallback = new URL('/auth/callback', configuredOrigin);
+    canonicalCallback.searchParams.set('code', code);
+    if (next) canonicalCallback.searchParams.set('next', next);
+    return NextResponse.redirect(canonicalCallback);
   }
 
   const supabase = await createSupabaseServerClient();
