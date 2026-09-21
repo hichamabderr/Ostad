@@ -65,6 +65,7 @@ Supabase.
 | avatar binary | مسار Storage | نعم | لا | `avatars` bucket مع outbox محلي؛ يعاد إنشاء signed URL عند التحميل، وتدعم الإزالة outbox |
 | retry/backoff | نعم | نعم | لا | محاولة مؤجلة بتزايد أسي حتى 5 دقائق مع حفظ attempts/nextAttemptAt |
 | operation idempotency | operation id حتمي لكل revision | نعم | نعم | ledger `sync_operations` وRPC `claim_sync_operation` يمنعان تكرار العملية نفسها بعد انقطاع الاستجابة دون حجب تحديثات لاحقة |
+| reset workspace | `reset_workspace` + RLS/FK | تنظيف outbox/cache بعد الإقرار | إعادة تحميل لاحقة | يحذف ملفات memoranda/avatar وسجل العمليات؛ و`dashboard_tasks` يملك trigger مزامنة واحداً |
 
 ## نتيجة التدقيق المباشر الأخير
 
