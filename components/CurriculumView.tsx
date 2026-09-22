@@ -41,8 +41,16 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
     loadAllCurriculum().then(() => setLoaded(true));
   }, []);
   const activeClass = state.classes.find(c => c.id === state.activeClassId);
+  const [prevActiveClassId, setPrevActiveClassId] = useState(state.activeClassId);
   const [selectedLevel, setSelectedLevel] = useState<GradeLevel>(
     activeClass?.level || '3AS' );
+
+  if (state.activeClassId !== prevActiveClassId) {
+    setPrevActiveClassId(state.activeClassId);
+    if (activeClass?.level) {
+      setSelectedLevel(activeClass.level);
+    }
+  }
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedUnitId, setExpandedUnitId] = useState<string | null>(null);
 
@@ -138,7 +146,15 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
     const progress = state.lessonProgress.find(
       p => p.classId === state.activeClassId && p.unitId === unitId
     );
-    return progress?.status || 'NOT_STARTED';
+    if (progress?.status) return progress.status;
+
+    // Automatically recognize as completed if documented in the notebook
+    const isDocumentedInSessions = state.sessions.some(
+      s => s.classId === state.activeClassId && s.unitId === unitId && (s.accomplishments || s.notes || s.sessionGoals)
+    );
+    if (isDocumentedInSessions) return 'COMPLETED';
+
+    return 'NOT_STARTED';
   };
 
   const setUnitStatus = async (unitId: string, status: LessonStatus) => {
@@ -283,8 +299,21 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
         </div>
 
         {activeClass && (
-          <div className="flex items-center gap-2 text-xs font-medium text-slate-700">
-            <span>متابعة تقدم القسم:</span>
+          <div className="flex items-center gap-3 text-xs font-medium text-slate-700 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <span>نسبة الإنجاز:</span>
+              <span className="font-bold text-[var(--primary)] bg-[var(--primary-soft)] px-2.5 py-0.5 rounded-full border border-[var(--primary)]/20 font-mono">
+                {filteredUnits.filter(u => getUnitStatus(u.id) === 'COMPLETED').length} / {filteredUnits.length} وحدة ({filteredUnits.length > 0 ? Math.round((filteredUnits.filter(u => getUnitStatus(u.id) === 'COMPLETED').length / filteredUnits.length) * 100) : 0}%)
+              </span>
+            </div>
+            <div className="hidden sm:block w-24 h-2 bg-slate-200 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[var(--primary)] transition-all duration-300"
+                style={{
+                  width: `${filteredUnits.length > 0 ? Math.round((filteredUnits.filter(u => getUnitStatus(u.id) === 'COMPLETED').length / filteredUnits.length) * 100) : 0}%`
+                }}
+              />
+            </div>
             <span className="font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200">
               {activeClass.name} ({activeClass.stream})
             </span>

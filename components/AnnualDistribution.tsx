@@ -180,8 +180,17 @@ export const getUnitSchedule = (
 export const AnnualDistribution: React.FC<AnnualDistributionProps> = ({
 }) => {
   const { state, updateState: onUpdateState } = useAppState();
-  const [selectedLevel, setSelectedLevel] = useState<GradeLevel>("3AS");
+  const activeClass = state.classes.find(c => c.id === state.activeClassId);
+  const [prevActiveClassId, setPrevActiveClassId] = useState(state.activeClassId);
+  const [selectedLevel, setSelectedLevel] = useState<GradeLevel>(activeClass?.level || "3AS");
   const [curriculumLoaded, setCurriculumLoaded] = useState(false);
+
+  if (state.activeClassId !== prevActiveClassId) {
+    setPrevActiveClassId(state.activeClassId);
+    if (activeClass?.level) {
+      setSelectedLevel(activeClass.level);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -519,6 +528,22 @@ export const AnnualDistribution: React.FC<AnnualDistributionProps> = ({
                           unit,
                           originalIndex,
                         );
+                        const isUnitCompleted = Boolean(
+                          state.activeClassId && (
+                            state.lessonProgress.some(
+                              (p) =>
+                                p.classId === state.activeClassId &&
+                                p.unitId === unit.id &&
+                                p.status === "COMPLETED",
+                            ) ||
+                            state.sessions.some(
+                              (s) =>
+                                s.classId === state.activeClassId &&
+                                s.unitId === unit.id &&
+                                (s.accomplishments || s.notes || s.sessionGoals),
+                            )
+                          ),
+                        );
 
                         return (
                           <tr
@@ -542,7 +567,14 @@ export const AnnualDistribution: React.FC<AnnualDistributionProps> = ({
                               {unit.domain}
                             </td>
                             <td className="p-2.5 font-bold text-slate-900">
-                              {unit.title}
+                              <div className="flex items-center justify-between gap-2">
+                                <span>{unit.title}</span>
+                                {isUnitCompleted && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--primary-soft)] text-[var(--primary)] text-[10px] font-bold border border-[var(--primary)]/20 shrink-0">
+                                    أُنجزت ✓
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="p-2.5 text-center font-mono font-bold text-slate-700">
                               {unit.hourlyVolume} سا
@@ -570,6 +602,23 @@ export const AnnualDistribution: React.FC<AnnualDistributionProps> = ({
               {/* Mobile Cards */}
               <div className="block lg:hidden space-y-3 mt-3">
                 {sec.units.map(({ unit, originalIndex, sched }) => {
+                  const isUnitCompleted = Boolean(
+                    state.activeClassId && (
+                      state.lessonProgress.some(
+                        (p) =>
+                          p.classId === state.activeClassId &&
+                          p.unitId === unit.id &&
+                          p.status === "COMPLETED",
+                      ) ||
+                      state.sessions.some(
+                        (s) =>
+                          s.classId === state.activeClassId &&
+                          s.unitId === unit.id &&
+                          (s.accomplishments || s.notes || s.sessionGoals),
+                      )
+                    ),
+                  );
+
                   return (
                     <div
                       key={unit.id}
@@ -589,9 +638,16 @@ export const AnnualDistribution: React.FC<AnnualDistributionProps> = ({
                       </div>
 
                       <div className="space-y-1">
-                        <span className="text-[10px] font-semibold text-[var(--primary)] bg-[var(--primary-soft)] px-1.5 py-0.5 rounded">
-                          {unit.domain}
-                        </span>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-semibold text-[var(--primary)] bg-[var(--primary-soft)] px-1.5 py-0.5 rounded">
+                            {unit.domain}
+                          </span>
+                          {isUnitCompleted && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--primary-soft)] text-[var(--primary)] text-[10px] font-bold border border-[var(--primary)]/20">
+                              أُنجزت ✓
+                            </span>
+                          )}
+                        </div>
                         <h4 className="font-bold text-sm text-slate-900 leading-snug">
                           {unit.title}
                         </h4>

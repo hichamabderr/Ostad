@@ -73,7 +73,7 @@ Supabase، بينما تُحمّل النسخة السحابية الحالية 
 وواجهة جدول التوقيت الموحدة؛ لا توجد نسخة ثانية من الجدول في القائمة الجانبية.
 تغيير المسار أو `activeClassId` لا يغيّر مصدر الحقيقة ولا يحذف بيانات أي قسم.
 | `grades` | `grades` | revision؛ الحسابات المشتقة لا تصبح مصدراً ثانياً |
-| `lessonProgress` | `lesson_progress` | tombstone |
+| `lessonProgress` | `lesson_progress` | tombstone؛ حالة الإنجاز في المنهاج والتوزيع السنوي تُشتق تلقائياً من `lesson_progress` أو من جلسات `sessions` الموثقة دون إنشاء مخزن ثانوي |
 | `customUnits` | `custom_units` | tombstone |
 | `lessonPlans` | `lesson_plans` | tombstone |
 | `dashboardTasks` | `dashboard_tasks` | tombstone |
