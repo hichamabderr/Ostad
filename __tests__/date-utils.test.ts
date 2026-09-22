@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getLocalDateString, normalizeDateToIso } from '@/lib/date-utils';
+import { getLocalDateString, normalizeDateToIso, normalizeTime } from '@/lib/date-utils';
 
 describe('getLocalDateString', () => {
   it('formats a date without converting it to UTC', () => {
@@ -39,5 +39,29 @@ describe('normalizeDateToIso', () => {
     expect(normalizeDateToIso('   ')).toBeNull();
     expect(normalizeDateToIso('غير محدد')).toBeNull();
     expect(normalizeDateToIso('99/99/9999')).toBeNull();
+  });
+});
+
+describe('normalizeTime', () => {
+  it('formats various time strings to standard HH:MM', () => {
+    expect(normalizeTime('8:00')).toBe('08:00');
+    expect(normalizeTime('08:00')).toBe('08:00');
+    expect(normalizeTime('08:00:00')).toBe('08:00');
+    expect(normalizeTime('14:30:45')).toBe('14:30');
+    expect(normalizeTime('23:59')).toBe('23:59');
+  });
+
+  it('handles Arabic-Indic numerals', () => {
+    expect(normalizeTime('٠٨:٣٠')).toBe('08:30');
+    expect(normalizeTime('١٤:٠٠')).toBe('14:00');
+  });
+
+  it('returns null for invalid or unparseable time strings', () => {
+    expect(normalizeTime(null)).toBeNull();
+    expect(normalizeTime(undefined)).toBeNull();
+    expect(normalizeTime('')).toBeNull();
+    expect(normalizeTime('not a time')).toBeNull();
+    expect(normalizeTime('25:00')).toBeNull();
+    expect(normalizeTime('12:60')).toBeNull();
   });
 });

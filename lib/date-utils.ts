@@ -66,3 +66,26 @@ export function normalizeDateToIso(value: unknown): string | null {
 
   return null;
 }
+
+/**
+ * Normalizes time strings (e.g. "8:00", "08:00:00", Arabic numerals) into standard "HH:MM" (24-hour format).
+ * Returns null if the value is invalid or cannot be parsed.
+ */
+export function normalizeTime(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') return null;
+  let str = value.trim();
+  if (!str) return null;
+
+  // Convert Arabic-Indic and Persian numerals to ASCII digits
+  str = str
+    .replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
+    .replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d).toString());
+
+  const match = /^(\d{1,2}):(\d{2})/.exec(str);
+  if (!match) return null;
+  const hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}

@@ -5,7 +5,7 @@ import type { Database } from './database.types';
 import { getWeeklyHours } from '@/lib/curriculum-data';
 import { enqueueSyncState, type SyncEntity, type SyncOperation, type SyncOutboxEntry } from '@/lib/sync-outbox';
 import { stableUuid } from './migrate-local-state';
-import { normalizeDateToIso } from '@/lib/date-utils';
+import { normalizeDateToIso, normalizeTime } from '@/lib/date-utils';
 
 type Client = SupabaseClient<Database>;
 type AnyClient = { from(table: string): any; auth: any; rpc: any; storage: any };
@@ -55,12 +55,91 @@ function toRow(entity: SyncEntity, payload: any, ownerId: string, workspace: str
   switch (entity) {
     case 'class': return { ...base, name: payload.name.trim(), level: payload.level, section: payload.stream || null, weekly_hours: getWeeklyHours(payload.level), academic_year: null, notes: null };
     case 'student': return { ...base, class_id: classId(payload.classId), full_name: payload.fullName.trim(), number_in_list: payload.numberInList, reg_number: payload.regNumber || null, registration_number: payload.registrationNumber || null, is_repeater: payload.isRepeater ?? false, guardian_phone: payload.guardianPhone || null, gender: payload.gender === 'M' ? 'male' : payload.gender === 'F' ? 'female' : null, birth_date: normalizeDateToIso(payload.birthDate) || null, notes: payload.notes || null };
-    case 'grade': return { ...base, student_id: studentId(payload.studentId), class_id: classId(payload.classId), trimester: payload.trimester, continuous_eval: payload.continuousEval, behavior_score: payload.behaviorScore ?? null, attendance_score: payload.attendanceScore ?? null, notebook_score: payload.notebookScore ?? null, participation_score: payload.participationScore ?? null, quiz: payload.quiz, exam: payload.exam, calculated_average: payload.calculatedAverage ?? null, estimation: payload.estimation || null, guidance: payload.guidance || null, remarks: payload.remarks || null, follow_up_notes: payload.followUpNotes || null };
-    case 'timetable': return { ...base, class_id: classId(payload.classId), weekday: payload.dayOfWeek, start_time: payload.startTime, end_time: payload.endTime, room: payload.room || null, notes: payload.type || null };
-    case 'lessonProgress': return { ...base, class_id: classId(payload.classId), unit_id: null, unit_key: payload.unitId || null, status: payload.status, completed_at: payload.completedAt || null, notes: JSON.stringify(payload) };
-    case 'session': return { ...base, class_id: classId(payload.classId), session_date: payload.date, start_time: payload.startTime, end_time: payload.endTime, topic: payload.customTopic || null, teacher_notes: JSON.stringify(payload) };
-    case 'customUnit': return { ...base, title: payload.title, level: payload.level, position: payload.unitNumber || 0, metadata: payload };
-    case 'lessonPlan': return { ...base, class_id: classId(payload.classId), unit_id: null, title: payload.title || '', content: payload };
+    case 'grade': {
+      const clamp = (val: any, min: number, max: number): number | null => {
+        if (val === null || val === undefined || val === '') return null;
+        const n = Number(val);
+        if (isNaN(n)) return null;
+        return Math.min(Math.max(n, min), max);
+      };
+      const trimester = Math.min(Math.max(Number(payload.trimester) || 1, 1), 3);
+      return {
+        ...base,
+        student_id: studentId(payload.studentId),
+        class_id: classId(payload.classId),
+        trimester,
+        continuous_eval: clamp(payload.continuousEval, 0, 20),
+        behavior_score: clamp(payload.behaviorScore, 0, 5),
+        attendance_score: clamp(payload.attendanceScore, 0, 5),
+        notebook_score: clamp(payload.notebookScore, 0, 5),
+        participation_score: clamp(payload.participationScore, 0, 5),
+        quiz: clamp(payload.quiz, 0, 20),
+        exam: clamp(payload.exam, 0, 20),
+        calculated_average: clamp(payload.calculatedAverage, 0, 20),
+        estimation: payload.estimation || null,
+        guidance: payload.guidance || null,
+        remarks: payload.remarks || null,
+        follow_up_notes: payload.followUpNotes || null,
+      };
+    }
+    case 'timetable': {
+      const startTime = normalizeTime(payload.startTime) || '08:00';
+      let endTime = normalizeTime(payload.endTime);
+      if (!endTime || endTime <= startTime) {
+        const [h, m] = startTime.split(':').map(Number);
+        endTime = `${String((h + 1) % 24).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      }
+      const weekday = typeof payload.dayOfWeek === 'number' && payload.dayOfWeek >= 0 && payload.dayOfWeek <= 6
+        ? payload.dayOfWeek
+        : 0;
+      return { ...base, class_id: classId(payload.classId), weekday, start_time: startTime, end_time: endTime, room: payload.room || null, notes: payload.type || null };
+    }
+    case 'lessonProgress': {
+      const s = String(payload.status || '').toLowerCase();
+      const dbStatus = s === 'completed'
+        ? 'completed'
+        : (s === 'in_progress' || s === 'planned' || s === 'needs_remedial')
+          ? 'in_progress'
+          : 'not_started';
+      return {
+        ...base,
+        class_id: classId(payload.classId),
+        unit_id: null,
+        unit_key: payload.unitId || null,
+        status: dbStatus,
+        completed_at: payload.completedAt ? (normalizeDateToIso(payload.completedAt) || null) : null,
+        notes: JSON.stringify(payload),
+      };
+    }
+    case 'session': {
+      const sessionDate = normalizeDateToIso(payload.date) || new Date().toISOString().slice(0, 10);
+      const startTime = normalizeTime(payload.startTime) || null;
+      const parsedEndTime = normalizeTime(payload.endTime);
+      const endTime = (parsedEndTime && (!startTime || parsedEndTime > startTime)) ? parsedEndTime : null;
+      return {
+        ...base,
+        class_id: classId(payload.classId),
+        session_date: sessionDate,
+        start_time: startTime,
+        end_time: endTime,
+        topic: payload.customTopic || null,
+        teacher_notes: JSON.stringify(payload),
+      };
+    }
+    case 'customUnit': return {
+      ...base,
+      title: (payload.title || 'وحدة جديدة').trim() || 'وحدة جديدة',
+      level: payload.level || '1AS_SCIENCE',
+      position: Math.max(0, Number(payload.unitNumber || payload.position || 0) || 0),
+      metadata: payload,
+    };
+    case 'lessonPlan': return {
+      ...base,
+      class_id: classId(payload.classId),
+      unit_id: null,
+      title: (payload.title || 'مذكرة جديدة').trim() || 'مذكرة جديدة',
+      content: payload,
+    };
     case 'attendance': return {
       ...base,
       session_id: sessionId(payload.sessionId),
@@ -79,7 +158,7 @@ function toRow(entity: SyncEntity, payload: any, ownerId: string, workspace: str
     case 'dashboardTask': return {
       ...base,
       task_id: payload.id,
-      text: payload.text,
+      text: (payload.text || '').trim(),
       done: Boolean(payload.done),
     };
     default: return payload;
@@ -102,17 +181,33 @@ function fromRow(entity: SyncEntity, row: any): any {
               id: row.id,
               classId: row.class_id,
               date: row.session_date,
-              startTime: row.start_time || parsed.startTime || '',
-              endTime: row.end_time || parsed.endTime || '',
+              startTime: normalizeTime(row.start_time) || (typeof parsed.startTime === 'string' ? normalizeTime(parsed.startTime) || '' : ''),
+              endTime: normalizeTime(row.end_time) || (typeof parsed.endTime === 'string' ? normalizeTime(parsed.endTime) || '' : ''),
             };
           }
-          return parsed;
+          return {
+            ...parsed,
+            id: row.id,
+            classId: row.class_id,
+            unitId: parsed.unitId || row.unit_key || '',
+            status: parsed.status || (row.status === 'completed' ? 'COMPLETED' : row.status === 'in_progress' ? 'IN_PROGRESS' : 'NOT_STARTED'),
+            completedAt: parsed.completedAt || row.completed_at?.slice(0, 10) || undefined,
+          };
         }
       } catch { /* retain compatibility with rows written by older clients */ }
     }
+    if (entity === 'lessonProgress') {
+      return {
+        id: row.id,
+        classId: row.class_id,
+        unitId: row.unit_key || '',
+        status: row.status === 'completed' ? 'COMPLETED' : row.status === 'in_progress' ? 'IN_PROGRESS' : 'NOT_STARTED',
+        completedAt: row.completed_at?.slice(0, 10) || undefined,
+      };
+    }
   }
   if (['customUnit', 'lessonPlan'].includes(entity) && isObject(row.metadata || row.content)) return row.metadata || row.content;
-  if (entity === 'timetable') return { id: row.id, classId: row.class_id, dayOfWeek: row.weekday, startTime: row.start_time, endTime: row.end_time, room: row.room || undefined, type: row.notes || undefined } satisfies TimetableSlot;
+  if (entity === 'timetable') return { id: row.id, classId: row.class_id, dayOfWeek: row.weekday, startTime: normalizeTime(row.start_time) || '08:00', endTime: normalizeTime(row.end_time) || '09:00', room: row.room || undefined, type: row.notes || undefined } satisfies TimetableSlot;
   return null;
 }
 
@@ -137,25 +232,37 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
       }
     }
     const by = (entity: SyncEntity) => (results.find(([key]) => key === entity)?.[1].data || []);
+
+    const retainLocal = <T extends { id: string }>(
+      entity: SyncEntity,
+      remoteItems: T[],
+      localItems: T[] | undefined,
+    ): T[] => {
+      const remoteIds = new Set(remoteItems.map((item) => item.id));
+      const retained = (localItems || []).filter((item) => {
+        const cloudId = getCloudRecordId(userId, entity, item.id);
+        return (
+          !remoteIds.has(item.id) &&
+          !remoteIds.has(cloudId) &&
+          !localState.deletedRecordIds?.includes(`${entity}:${item.id}`)
+        );
+      });
+      if (remoteItems.length > 0) {
+        return retained.length > 0 ? [...remoteItems, ...retained] : remoteItems;
+      }
+      return isDemoState(localState) ? [] : retained;
+    };
+
     const remoteClasses = by('class').map((r: any) => fromRow('class', r));
-    const remoteClassIds = new Set(remoteClasses.map((c: ClassRoom) => c.id));
-    const retainedLocalClasses = (localState.classes || []).filter(
-      (c) => !remoteClassIds.has(c.id) && !localState.deletedRecordIds?.includes(`class:${c.id}`)
-    );
-    const classes = remoteClasses.length > 0
-      ? (retainedLocalClasses.length > 0 ? [...remoteClasses, ...retainedLocalClasses] : remoteClasses)
-      : (isDemoState(localState) ? [] : retainedLocalClasses);
+    const classes = retainLocal('class', remoteClasses, localState.classes);
 
     const remoteStudents = by('student').map((r: any) => fromRow('student', r));
-    const remoteStudentIds = new Set(remoteStudents.map((s: Student) => s.id));
-    const retainedLocalStudents = (localState.students || []).filter(
-      (s) => !remoteStudentIds.has(s.id) && !localState.deletedRecordIds?.includes(`student:${s.id}`)
-    );
-    const students = remoteStudents.length > 0
-      ? (retainedLocalStudents.length > 0 ? [...remoteStudents, ...retainedLocalStudents] : remoteStudents)
-      : (isDemoState(localState) ? [] : retainedLocalStudents);
+    const students = retainLocal('student', remoteStudents, localState.students);
 
-    if (!classes.length && !students.length && !by('grade').length && isDemoState(localState)) return getEmptyState();
+    const remoteGrades = by('grade').map((r: any) => fromRow('grade', r)).filter(Boolean);
+    const grades = retainLocal('grade', remoteGrades, localState.grades);
+
+    if (!classes.length && !students.length && !remoteGrades.length && isDemoState(localState)) return getEmptyState();
     const profile = by('profile')[0];
     let remoteAvatarUrl: string | undefined;
     if (profile?.avatar_storage_key) {
@@ -165,11 +272,14 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
     }
     const settings = by('settings')[0]?.settings;
     const supplementary = isObject(settings) ? settings : {};
-    const dashboardTasks = by('dashboardTask').map((row: any) => ({
+
+    const remoteTasks = by('dashboardTask').map((row: any) => ({
       id: row.task_id,
       text: row.text,
       done: Boolean(row.done),
     }));
+    const dashboardTasks = retainLocal('dashboardTask', remoteTasks, localState.dashboardTasks);
+
     const remoteUnitPdfFiles = Object.fromEntries(
       (memorandaResult.data || [])
         .filter((row: any) => typeof row.unit_key === 'string' && typeof row.storage_path === 'string')
@@ -179,11 +289,12 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
           uploadedAt: (row.updated_at || row.created_at || new Date().toISOString()).slice(0, 10),
         }]),
     );
-    const sessions: SessionRecord[] = by('session')
+
+    const remoteSessions: SessionRecord[] = by('session')
       .map((r: any) => fromRow('session', r))
       .filter(Boolean);
-    const sessionsById = new Map(sessions.map((session) => [session.id, session]));
-    for (const session of sessions) {
+    const sessionsById = new Map(remoteSessions.map((session) => [session.id, session]));
+    for (const session of remoteSessions) {
       session.attendance = {};
       session.disruptions = [];
       session.unwrittenLessons = [];
@@ -215,6 +326,20 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
         (session[target] ??= []).push(row.student_id);
       }
     }
+    const sessions = retainLocal('session', remoteSessions, localState.sessions);
+
+    const remoteTimetable = by('timetable').map((r: any) => fromRow('timetable', r)).filter(Boolean);
+    const timetable = retainLocal('timetable', remoteTimetable, localState.timetable);
+
+    const remoteProgress = by('lessonProgress').map((r: any) => fromRow('lessonProgress', r)).filter(Boolean);
+    const lessonProgress = retainLocal('lessonProgress', remoteProgress, localState.lessonProgress);
+
+    const remoteCustomUnits = by('customUnit').map((r: any) => fromRow('customUnit', r)).filter(Boolean);
+    const customUnits = retainLocal('customUnit', remoteCustomUnits, localState.customUnits);
+
+    const remotePlans = by('lessonPlan').map((r: any) => fromRow('lessonPlan', r)).filter(Boolean);
+    const lessonPlans = retainLocal('lessonPlan', remotePlans, localState.lessonPlans);
+
     return { ...localState, ...supplementary, profile: profile ? {
         ...localState.profile,
         name: profile.full_name || localState.profile.name,
@@ -238,9 +363,9 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
         familyStatus: profile.family_status || undefined,
         gender: profile.gender === 'M' || profile.gender === 'F' ? profile.gender : undefined,
       } : localState.profile,
-      classes, students, grades: by('grade').map((r: any) => fromRow('grade', r)),
-      sessions, timetable: by('timetable').map((r: any) => fromRow('timetable', r)).filter(Boolean),
-      lessonProgress: by('lessonProgress').map((r: any) => fromRow('lessonProgress', r)).filter(Boolean), customUnits: by('customUnit').map((r: any) => fromRow('customUnit', r)).filter(Boolean), lessonPlans: by('lessonPlan').map((r: any) => fromRow('lessonPlan', r)).filter(Boolean), dashboardTasks,
+      classes, students, grades,
+      sessions, timetable,
+      lessonProgress, customUnits, lessonPlans, dashboardTasks,
       unitPdfFiles: {
         ...(localState.unitPdfFiles || {}),
         ...remoteUnitPdfFiles,

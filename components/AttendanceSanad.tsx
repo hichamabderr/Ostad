@@ -292,11 +292,11 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
       }))
         .then(() => {
           setSelectedSessionId(newSessions[0].id);
-          showToast(`تم تأكيد توليد ${newSessions.length} حصة في Supabase للفصل ${state.activeTrimester}.`, 'success');
+          showToast(`تم تأكيد توليد ${newSessions.length} حصة في السحابة للفصل ${state.activeTrimester}.`, 'success');
         })
         .catch((error: unknown) => {
           console.error('Generated sessions sync failed:', error);
-          showToast(error instanceof Error ? error.message : 'تعذر تأكيد الحصص في Supabase.', 'error');
+          showToast(error instanceof Error ? error.message : 'تعذر تأكيد الحصص في السحابة.', 'error');
         });
     } else {
       showToast('جميع حصص هذا الفصل مولدة مسبقاً.', 'warning');

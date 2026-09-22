@@ -341,7 +341,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
       });
       setMergePair(null);
       setImportNotification(`تم دمج سجلي «${duplicate.fullName}» و«${primary.fullName}» مع الحفاظ على الدرجات والحضور.`);
-      showToast('تم دمج سجلي التلميذين ومزامنة التغييرات مع Supabase.', 'success');
+      showToast('تم دمج سجلي التلميذين ومزامنة التغييرات مع السحابة.', 'success');
     } catch (error: unknown) {
       console.error('Student merge sync failed:', error);
       showToast(error instanceof Error ? error.message : 'تعذرت مزامنة دمج سجلي التلميذين.', 'error');
@@ -395,7 +395,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
       });
       setIsClassModalOpen(false);
       setEditingClass(null);
-      showToast('تم حفظ القسم ومزامنته مع Supabase.', 'success');
+      showToast('تم حفظ القسم ومزامنته مع السحابة.', 'success');
     } catch (error: unknown) {
       console.error('Class sync failed:', error);
       showToast(error instanceof Error ? error.message : 'تعذر مزامنة القسم.', 'error');
@@ -438,7 +438,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
       });
       setIsSlotModalOpen(false);
       setEditingSlot(null);
-      showToast('تم حفظ حصة التوقيت ومزامنتها مع Supabase.', 'success');
+      showToast('تم حفظ حصة التوقيت ومزامنتها مع السحابة.', 'success');
     } catch (error: unknown) {
       console.error('Timetable slot sync failed:', error);
       showToast(error instanceof Error ? error.message : 'تعذر مزامنة حصة التوقيت.', 'error');
@@ -451,7 +451,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
         ...prev,
         timetable: prev.timetable.filter(s => s.id !== slotId)
       }));
-      showToast('تم حذف حصة التوقيت ومزامنة الحذف مع Supabase.', 'success');
+      showToast('تم حذف حصة التوقيت ومزامنة الحذف مع السحابة.', 'success');
     } catch (error: unknown) {
       console.error('Timetable slot deletion sync failed:', error);
       showToast(error instanceof Error ? error.message : 'تعذر مزامنة حذف حصة التوقيت.', 'error');
@@ -594,7 +594,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
         targetClassIdToSelect = firstClassId;
 
         // Summary notification
-        summaryNotificationMsg = `تم تجهيز ${parsedData.classes.length} أفواج تربوية للمزامنة: إضافة ${totalNewStudentsAdded} تلميذاً وتحديث ${totalExistingStudentsRetained} تلميذاً. سيظهر التأكيد بعد إقرار Supabase.`;
+        summaryNotificationMsg = `تم تجهيز ${parsedData.classes.length} أفواج تربوية للمزامنة: إضافة ${totalNewStudentsAdded} تلميذاً وتحديث ${totalExistingStudentsRetained} تلميذاً. سيظهر التأكيد بعد اكتمال المزامنة السحابية.`;
 
         // Update profile if schoolName or academicYear were detected
         const updatedProfile = { ...prev.profile };
@@ -621,7 +621,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     try {
       await commitRosterImportBatch(importedClasses, importedStudents);
       setPendingImport(null);
-      showToast('تم استيراد القوائم ومزامنتها مع Supabase.', 'success');
+      showToast('تم استيراد القوائم ومزامنتها سحابياً بنجاح.', 'success');
     } catch (error) {
       console.error('Atomic roster import sync failed:', error);
       showToast('تم حفظ الاستيراد محلياً، وتعذرت المصادقة السحابية للدفعة. ستتم إعادة المحاولة عبر المزامنة.', 'warning');
@@ -857,13 +857,13 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
       setSelectedClassId(targetClassIdToSelect);
     }
     setImportNotification(
-      `تم تجهيز ${classesToImport.length} أفواج للمزامنة من برنامج الممتاز (${totalAdded} تلميذاً جديداً، و ${totalUpdated} تلميذ تم تحديث بياناتهم وحفظ القاعات). سيظهر التأكيد بعد إقرار Supabase.`
+      `تم تجهيز ${classesToImport.length} أفواج للمزامنة من برنامج الممتاز (${totalAdded} تلميذاً جديداً، و ${totalUpdated} تلميذ تم تحديث بياناتهم وحفظ القاعات). سيظهر التأكيد بعد اكتمال المزامنة السحابية.`
     );
     try {
       await commitRosterImportBatch(importedClasses, importedStudents);
       setIsMoumtazeModalOpen(false);
       setMoumtazeData(null);
-      showToast('تم استيراد قوائم الممتاز ومزامنتها مع Supabase.', 'success');
+      showToast('تم استيراد قوائم الممتاز ومزامنتها سحابياً بنجاح.', 'success');
     } catch (error) {
       console.error('Atomic Moumtaze roster sync failed:', error);
       showToast('تم حفظ الاستيراد محلياً، وتعذرت المصادقة السحابية للدفعة. ستتم إعادة المحاولة عبر المزامنة.', 'warning');
@@ -998,7 +998,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
       });
       setIsStudentModalOpen(false);
       setEditingStudent(null);
-      showToast('تم حفظ التلميذ ومزامنته مع Supabase.', 'success');
+      showToast('تم حفظ التلميذ ومزامنته مع السحابة.', 'success');
     } catch (error: unknown) {
       console.error('Student sync failed:', error);
       showToast(error instanceof Error ? error.message : 'تعذر مزامنة التلميذ.', 'error');
@@ -1092,7 +1092,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
           grades: prev.grades.filter(g => g.studentId !== id)
         };
         });
-        showToast('تم حذف التلميذ ومزامنة الحذف مع Supabase.', 'success');
+        showToast('تم حذف التلميذ ومزامنة الحذف مع السحابة.', 'success');
       } catch (error: unknown) {
         console.error('Student deletion sync failed:', error);
         showToast(error instanceof Error ? error.message : 'تعذرت مزامنة حذف التلميذ.', 'error');
@@ -1110,7 +1110,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
               ? prev.classes.find(c => c.id !== id)?.id || null
               : prev.activeClassId
         }));
-        showToast('تم حذف القسم ومزامنة الحذف مع Supabase.', 'success');
+        showToast('تم حذف القسم ومزامنة الحذف مع السحابة.', 'success');
       } catch (error: unknown) {
         console.error('Class deletion sync failed:', error);
         showToast(error instanceof Error ? error.message : 'تعذرت مزامنة حذف القسم.', 'error');

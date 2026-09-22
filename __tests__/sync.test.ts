@@ -638,4 +638,72 @@ describe('delta sync engine', () => {
     const result = await enqueueSyncDelta(ownerId, state, state, 1, new Date().toISOString());
     expect(result).toBeNull();
   });
+
+  it('loadCoreState non-destructively retains unsynced local sessions, grades, timetable, and lesson progress', async () => {
+    const mockClient = {
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null }) },
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              is: vi.fn().mockResolvedValue({ data: [], error: null }),
+            }),
+            is: vi.fn().mockResolvedValue({ data: [], error: null }),
+            data: [],
+            error: null,
+          }),
+        }),
+      }),
+    } as any;
+
+    const localState = {
+      ...getEmptyState(),
+      isDemo: false,
+      classes: [{ id: 'c1', name: '1AS', level: '1AS_SCIENCE' as const, stream: '' }],
+      sessions: [{
+        id: 's1',
+        classId: 'c1',
+        date: '2026-09-22',
+        startTime: '08:00',
+        endTime: '09:00',
+        sessionGoals: '',
+        accomplishments: '',
+        nextSteps: '',
+        teacherNotes: '',
+        attendance: {},
+      }],
+      grades: [{
+        id: 'g1',
+        studentId: 'st1',
+        classId: 'c1',
+        trimester: 1 as const,
+        continuousEval: 15,
+        quiz: 14,
+        exam: 16,
+      }],
+      timetable: [{
+        id: 'tt1',
+        classId: 'c1',
+        dayOfWeek: 0,
+        startTime: '08:00',
+        endTime: '09:00',
+      }],
+      lessonProgress: [{
+        id: 'lp1',
+        classId: 'c1',
+        unitId: 'u1',
+        status: 'COMPLETED' as const,
+      }],
+    };
+
+    const loaded = await loadCoreState(mockClient, localState);
+    expect(loaded.sessions).toHaveLength(1);
+    expect(loaded.sessions[0].id).toBe('s1');
+    expect(loaded.grades).toHaveLength(1);
+    expect(loaded.grades[0].id).toBe('g1');
+    expect(loaded.timetable).toHaveLength(1);
+    expect(loaded.timetable[0].id).toBe('tt1');
+    expect(loaded.lessonProgress).toHaveLength(1);
+    expect(loaded.lessonProgress[0].id).toBe('lp1');
+  });
 });

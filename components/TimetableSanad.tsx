@@ -187,7 +187,7 @@ export const TimetableSanad: React.FC<TimetableSanadProps> = () => {
    }));
    setIsModalOpen(false);
    setEditingSlotId(null);
-   showToast('تم حفظ حصة التوقيت ومزامنتها مع Supabase.', 'success');
+   showToast('تم حفظ حصة التوقيت ومزامنتها مع السحابة.', 'success');
  } catch (error: unknown) {
    console.error('Timetable slot sync failed:', error);
    showToast(error instanceof Error ? error.message : 'تعذر مزامنة حصة التوقيت.', 'error');
@@ -201,7 +201,7 @@ export const TimetableSanad: React.FC<TimetableSanadProps> = () => {
      timetable: prev.timetable.filter(s => s.id !== slotId)
    }));
    setDeleteConfirmSlotId(null);
-   showToast('تم حذف حصة التوقيت ومزامنة الحذف مع Supabase.', 'success');
+   showToast('تم حذف حصة التوقيت ومزامنة الحذف مع السحابة.', 'success');
  } catch (error: unknown) {
    console.error('Timetable slot deletion sync failed:', error);
    showToast(error instanceof Error ? error.message : 'تعذر مزامنة حذف حصة التوقيت.', 'error');

@@ -20,7 +20,7 @@ export async function commitRosterImportBatch(
   if (classes.length === 0) return;
   const client = createSupabaseBrowserClient();
   if (!client) {
-    throw new Error('تعذر الوصول إلى Supabase لتأكيد استيراد القوائم.');
+    throw new Error('تعذر الوصول إلى الخادم السحابي لتأكيد استيراد القوائم.');
   }
 
   const mappedClasses = classes.map((c) => ({

@@ -43,7 +43,7 @@ function describeCloudError(error: unknown): Error {
     if (parts) return new Error(parts);
   }
 
-  return new Error('تعذر الوصول إلى بيانات Supabase. تحقق من تطبيق migration والصلاحيات وRLS.');
+  return new Error('تعذر الوصول إلى البيانات السحابية. يرجى التحقق من توفر الخدمة والاتصال.');
 }
 
 function getStateRecord(state: AppState, entity: SyncConflictDescriptor['entity'], recordId: string): unknown {
@@ -542,9 +542,9 @@ export function useCloudAppState(user: User | null) {
   };
 
   const resolveConflictKeepRemote = async (conflict: SyncConflictDescriptor): Promise<void> => {
-    if (!user) throw new Error('لا يمكن حل التعارض دون تسجيل الدخول إلى Supabase.');
+    if (!user) throw new Error('لا يمكن حل التعارض دون تسجيل الدخول.');
     const client = createSupabaseBrowserClient();
-    if (!client) throw new Error('لا يمكن حل التعارض دون اتصال Supabase.');
+    if (!client) throw new Error('لا يمكن حل التعارض دون اتصال بالخادم السحابي.');
     await removeSyncOutboxEntry(conflict.outboxId);
     const remoteState = await loadCoreState(client, latestStateRef.current);
     latestStateRef.current = remoteState;
@@ -559,9 +559,9 @@ export function useCloudAppState(user: User | null) {
   };
 
   const resolveConflictKeepLocal = async (conflict: SyncConflictDescriptor): Promise<void> => {
-    if (!user) throw new Error('لا يمكن حل التعارض دون تسجيل الدخول إلى Supabase.');
+    if (!user) throw new Error('لا يمكن حل التعارض دون تسجيل الدخول.');
     const client = createSupabaseBrowserClient();
-    if (!client) throw new Error('لا يمكن حل التعارض دون اتصال Supabase.');
+    if (!client) throw new Error('لا يمكن حل التعارض دون اتصال بالخادم السحابي.');
     const entries = await listSyncOutbox(user.id);
     const entry = entries.find((item) => item.id === conflict.outboxId);
     if (!entry) throw new Error('لم تعد عملية التعارض موجودة في طابور المزامنة.');
@@ -616,7 +616,7 @@ export function useCloudAppState(user: User | null) {
 
   const waitForSyncConfirmation = async (): Promise<void> => {
     if (!user) {
-      throw new Error('لا يمكن إعلان نجاح سحابي قبل تسجيل الدخول إلى Supabase.');
+      throw new Error('لا يمكن إعلان نجاح سحابي قبل تسجيل الدخول.');
     }
     const currentStatus = cloudStatusRef.current;
     if (currentStatus === 'sync-failed' || currentStatus === 'conflict') {
@@ -624,7 +624,7 @@ export function useCloudAppState(user: User | null) {
     }
 
     await new Promise((resolve) => window.setTimeout(resolve, 0));
-    const deadline = Date.now() + 5_000;
+    const deadline = Date.now() + 8_000;
     let observedPendingWork = false;
     while (Date.now() < deadline) {
       const pending = await listSyncOutbox(user.id);
@@ -633,7 +633,7 @@ export function useCloudAppState(user: User | null) {
         observedPendingWork = true;
       }
       if (status === 'sync-failed' || status === 'conflict' || status === 'local-only') {
-        throw new Error(syncError || 'تعذر تأكيد الحفظ في Supabase.');
+        throw new Error(syncError || 'تعذر تأكيد الحفظ في السحابة.');
       }
       if (observedPendingWork && status === 'ready' && pending.length === 0) {
         return;
@@ -717,7 +717,7 @@ export function useCloudAppState(user: User | null) {
 
     if (!user) return;
     const client = createSupabaseBrowserClient();
-    if (!client) throw new Error('لا يمكن مزامنة إعادة التعيين دون اتصال Supabase.');
+    if (!client) throw new Error('لا يمكن مزامنة إعادة التعيين دون اتصال بالخادم السحابي.');
 
     setCloudStatus('sync-pending');
     revisionRef.current += 1;
@@ -731,7 +731,7 @@ export function useCloudAppState(user: User | null) {
       void registerConflict(error);
     });
     if (!flushed || (await listSyncOutbox(user.id)).length > 0) {
-      throw new Error('تعذر تأكيد حذف الأقسام والتلاميذ في Supabase.');
+      throw new Error('تعذر تأكيد حذف الأقسام والتلاميذ في السحابة.');
     }
 
     await removeSyncOutboxEntry(entryId);
@@ -752,7 +752,7 @@ export function useCloudAppState(user: User | null) {
     }
     if (user) {
       const client = createSupabaseBrowserClient();
-      if (!client) throw new Error('لا يمكن تنظيف مساحة الحساب دون اتصال Supabase.');
+      if (!client) throw new Error('لا يمكن تنظيف مساحة الحساب دون اتصال بالخادم السحابي.');
       await resetCloudWorkspace(client, user.id);
       await clearSyncOutbox(user.id);
     }
