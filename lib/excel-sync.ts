@@ -3,6 +3,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { GradeLevel, Student, StudentGrade } from './types';
 import { v4 as uuidv4 } from 'uuid';
 import { parseAlgerianClass, getCanonicalClassName, getStudentNameKey } from './name-normalizer';
+import { normalizeDateToIso } from './date-utils';
 
 const MAX_EXCEL_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 const EXCEL_FILE_EXTENSIONS = new Set(['.xlsx', '.xlsm', '.xlsb', '.xls']);
@@ -350,21 +351,7 @@ export async function parseDigitizationFile(
       }
 
       const birthDateText = row[cols.birthDateCol];
-      let birthDate = '';
-      if (birthDateText) {
-        if (birthDateText instanceof Date) {
-          birthDate = birthDateText.toISOString().split('T')[0];
-        } else if (typeof birthDateText === 'number' && birthDateText > 10000) {
-          const date = XLSX.SSF.parse_date_code(birthDateText);
-          if (date) {
-            birthDate = `${date.y}-${String(date.m).padStart(2, '0')}-${String(
-              date.d
-            ).padStart(2, '0')}`;
-          }
-        } else {
-          birthDate = String(birthDateText).trim();
-        }
-      }
+      const birthDate = normalizeDateToIso(birthDateText) || '';
 
       const fullName = `${lastName} ${firstName}`.trim();
 

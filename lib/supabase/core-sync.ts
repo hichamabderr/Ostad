@@ -5,6 +5,7 @@ import type { Database } from './database.types';
 import { getWeeklyHours } from '@/lib/curriculum-data';
 import { enqueueSyncState, type SyncEntity, type SyncOperation, type SyncOutboxEntry } from '@/lib/sync-outbox';
 import { stableUuid } from './migrate-local-state';
+import { normalizeDateToIso } from '@/lib/date-utils';
 
 type Client = SupabaseClient<Database>;
 type AnyClient = { from(table: string): any; auth: any; rpc: any; storage: any };
@@ -53,7 +54,7 @@ function toRow(entity: SyncEntity, payload: any, ownerId: string, workspace: str
   const base = { id, owner_id: ownerId, workspace_id: workspace, revision: metadata.revision, sync_revision: metadata.revision, updated_by: ownerId, sync_device_id: metadata.deviceId, sync_updated_at: metadata.updatedAt };
   switch (entity) {
     case 'class': return { ...base, name: payload.name.trim(), level: payload.level, section: payload.stream || null, weekly_hours: getWeeklyHours(payload.level), academic_year: null, notes: null };
-    case 'student': return { ...base, class_id: classId(payload.classId), full_name: payload.fullName.trim(), number_in_list: payload.numberInList, reg_number: payload.regNumber || null, registration_number: payload.registrationNumber || null, is_repeater: payload.isRepeater ?? false, guardian_phone: payload.guardianPhone || null, gender: payload.gender === 'M' ? 'male' : payload.gender === 'F' ? 'female' : null, birth_date: payload.birthDate || null, notes: payload.notes || null };
+    case 'student': return { ...base, class_id: classId(payload.classId), full_name: payload.fullName.trim(), number_in_list: payload.numberInList, reg_number: payload.regNumber || null, registration_number: payload.registrationNumber || null, is_repeater: payload.isRepeater ?? false, guardian_phone: payload.guardianPhone || null, gender: payload.gender === 'M' ? 'male' : payload.gender === 'F' ? 'female' : null, birth_date: normalizeDateToIso(payload.birthDate) || null, notes: payload.notes || null };
     case 'grade': return { ...base, student_id: studentId(payload.studentId), class_id: classId(payload.classId), trimester: payload.trimester, continuous_eval: payload.continuousEval, behavior_score: payload.behaviorScore ?? null, attendance_score: payload.attendanceScore ?? null, notebook_score: payload.notebookScore ?? null, participation_score: payload.participationScore ?? null, quiz: payload.quiz, exam: payload.exam, calculated_average: payload.calculatedAverage ?? null, estimation: payload.estimation || null, guidance: payload.guidance || null, remarks: payload.remarks || null, follow_up_notes: payload.followUpNotes || null };
     case 'timetable': return { ...base, class_id: classId(payload.classId), weekday: payload.dayOfWeek, start_time: payload.startTime, end_time: payload.endTime, room: payload.room || null, notes: payload.type || null };
     case 'lessonProgress': return { ...base, class_id: classId(payload.classId), unit_id: null, unit_key: payload.unitId || null, status: payload.status, completed_at: payload.completedAt || null, notes: JSON.stringify(payload) };
@@ -136,8 +137,25 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
       }
     }
     const by = (entity: SyncEntity) => (results.find(([key]) => key === entity)?.[1].data || []);
-    const classes = by('class').map((r: any) => fromRow('class', r));
-    if (!classes.length && !by('student').length && !by('grade').length && isDemoState(localState)) return getEmptyState();
+    const remoteClasses = by('class').map((r: any) => fromRow('class', r));
+    const remoteClassIds = new Set(remoteClasses.map((c: ClassRoom) => c.id));
+    const retainedLocalClasses = (localState.classes || []).filter(
+      (c) => !remoteClassIds.has(c.id) && !localState.deletedRecordIds?.includes(`class:${c.id}`)
+    );
+    const classes = remoteClasses.length > 0
+      ? (retainedLocalClasses.length > 0 ? [...remoteClasses, ...retainedLocalClasses] : remoteClasses)
+      : (isDemoState(localState) ? [] : retainedLocalClasses);
+
+    const remoteStudents = by('student').map((r: any) => fromRow('student', r));
+    const remoteStudentIds = new Set(remoteStudents.map((s: Student) => s.id));
+    const retainedLocalStudents = (localState.students || []).filter(
+      (s) => !remoteStudentIds.has(s.id) && !localState.deletedRecordIds?.includes(`student:${s.id}`)
+    );
+    const students = remoteStudents.length > 0
+      ? (retainedLocalStudents.length > 0 ? [...remoteStudents, ...retainedLocalStudents] : remoteStudents)
+      : (isDemoState(localState) ? [] : retainedLocalStudents);
+
+    if (!classes.length && !students.length && !by('grade').length && isDemoState(localState)) return getEmptyState();
     const profile = by('profile')[0];
     let remoteAvatarUrl: string | undefined;
     if (profile?.avatar_storage_key) {
@@ -220,7 +238,7 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
         familyStatus: profile.family_status || undefined,
         gender: profile.gender === 'M' || profile.gender === 'F' ? profile.gender : undefined,
       } : localState.profile,
-      classes, students: by('student').map((r: any) => fromRow('student', r)), grades: by('grade').map((r: any) => fromRow('grade', r)),
+      classes, students, grades: by('grade').map((r: any) => fromRow('grade', r)),
       sessions, timetable: by('timetable').map((r: any) => fromRow('timetable', r)).filter(Boolean),
       lessonProgress: by('lessonProgress').map((r: any) => fromRow('lessonProgress', r)).filter(Boolean), customUnits: by('customUnit').map((r: any) => fromRow('customUnit', r)).filter(Boolean), lessonPlans: by('lessonPlan').map((r: any) => fromRow('lessonPlan', r)).filter(Boolean), dashboardTasks,
       unitPdfFiles: {
@@ -277,9 +295,9 @@ async function applyOperationOnce(client: AnyClient, ownerId: string, workspace:
       phone: p.phoneNumber || null,
       avatar_url: typeof p.avatarUrl === 'string' && !p.avatarUrl.startsWith('data:') ? p.avatarUrl : null,
       avatar_storage_key: p.avatarStorageKey || null,
-      first_appointment_date: p.firstAppointmentDate || null,
+      first_appointment_date: normalizeDateToIso(p.firstAppointmentDate) || null,
       experience_years: p.experienceYears ?? null,
-      birth_date: p.birthDate || null,
+      birth_date: normalizeDateToIso(p.birthDate) || null,
       birth_place: p.birthPlace || null,
       family_status: p.familyStatus || null,
       gender: p.gender || null,

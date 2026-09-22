@@ -1,6 +1,7 @@
 import { GradeLevel } from './types';
 import { detectLevelAndStream, isSchoolSummaryOrFooterRow } from './excel-sync';
 import { normalizeClassName, getCanonicalClassName } from './name-normalizer';
+import { normalizeDateToIso } from './date-utils';
 
 export interface MoumtazeStudent {
   numberInList: number;
@@ -33,35 +34,10 @@ export interface ParsedMoumtazeResult {
 }
 
 /**
- * Formats Excel date values (serial number, Date object, or text) into standard YYYY-MM-DD or DD/MM/YYYY.
+ * Formats Excel date values (serial number, Date object, or text) into standard ISO YYYY-MM-DD.
  */
 function formatExcelDate(val: any): string {
-  if (!val) return '';
-  if (typeof val === 'string') {
-    const trimmed = val.trim();
-    // If it's already YYYY-MM-DD or DD/MM/YYYY
-    if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$/.test(trimmed) || /^\d{1,2}[-/.]\d{1,2}[-/.]\d{4}$/.test(trimmed)) {
-      return trimmed;
-    }
-  }
-
-  if (val instanceof Date && !isNaN(val.getTime())) {
-    const y = val.getFullYear();
-    const m = String(val.getMonth() + 1).padStart(2, '0');
-    const d = String(val.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-
-  // Check if Excel numeric serial date (e.g. 39299 = 2007-08-07)
-  const num = Number(val);
-  if (!isNaN(num) && num > 20000 && num < 60000) {
-    const date = new Date(Date.UTC(1899, 11, 30) + Math.floor(num) * 86400000);
-    if (!Number.isNaN(date.getTime())) {
-      return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
-    }
-  }
-
-  return String(val).trim();
+  return normalizeDateToIso(val) || '';
 }
 
 /**

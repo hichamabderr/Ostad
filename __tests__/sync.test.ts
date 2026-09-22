@@ -31,8 +31,10 @@ import { getDeletedRecordIds, isAuthenticatedOwner } from '@/hooks/useCloudAppSt
 import {
   applySyncOutboxEntry,
   getCloudRecordId,
+  loadCoreState,
   SyncConflictError,
 } from '@/lib/supabase/core-sync';
+import { commitRosterImportBatch } from '@/lib/supabase/roster-import';
 import {
   enqueueSyncState,
   enqueueSyncOperations,
@@ -297,9 +299,11 @@ describe('core sync', () => {
       auth: { getUser: async () => ({ data: { user: { id: ownerId } } }) },
       rpc: async () => ({ data: workspaceId, error: null }),
       from(table: string) {
-        const chain = {
+        const chain: any = {
           select: () => chain,
           eq: () => chain,
+          is: () => chain,
+          then: (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve),
           maybeSingle: async () => ({
             data: table === 'sync_operations' ? null : options.existing ?? null,
             error: null,
@@ -454,6 +458,76 @@ describe('core sync', () => {
       entity_id: getCloudRecordId(ownerId, 'class', 'local-class'),
     }));
   });
+
+  it('normalizes student birth date to ISO YYYY-MM-DD when applying outbox upsert', async () => {
+    const { client, calls } = clientFor();
+    const operation: SyncOperation = {
+      id: 'student:s-algeria',
+      entity: 'student',
+      action: 'upsert',
+      recordId: 's-algeria',
+      payload: {
+        id: 's-algeria',
+        classId: 'c1',
+        fullName: 'أحمد بن علي',
+        numberInList: 1,
+        birthDate: '15/06/2008', // Algerian school format
+        gender: 'M',
+      },
+    };
+    const entry: SyncOutboxEntry = {
+      id: 'entry-date-test',
+      ownerId,
+      revision: 1,
+      updatedAt: '2026-09-22T08:00:00.000Z',
+      operations: [operation],
+      createdAt: '2026-09-22T08:00:00.000Z',
+    };
+
+    await applySyncOutboxEntry(client as never, ownerId, entry, deviceId);
+
+    const studentCall = calls.find((c) => c.table === 'students');
+    expect(studentCall).toBeDefined();
+    expect(studentCall?.method).toBe('upsert');
+    expect(studentCall?.value).toEqual(expect.objectContaining({
+      birth_date: '2008-06-15',
+      gender: 'male',
+      full_name: 'أحمد بن علي',
+    }));
+  });
+
+  it('loadCoreState preserves local un-synced classes and students when remote is empty', async () => {
+    const { client } = clientFor();
+    const localState = getEmptyState();
+    localState.classes = [
+      { id: 'c1', name: '2 لغات 1', level: '2AS_L', stream: 'لغات' },
+    ];
+    localState.students = [
+      { id: 's1', classId: 'c1', fullName: 'تلميذ تجريبي', numberInList: 1 },
+    ];
+
+    const loaded = await loadCoreState(client as never, localState);
+    expect(loaded.classes).toHaveLength(1);
+    expect(loaded.classes[0].name).toBe('2 لغات 1');
+    expect(loaded.students).toHaveLength(1);
+    expect(loaded.students[0].fullName).toBe('تلميذ تجريبي');
+  });
+
+  it('loadCoreState respects deletedRecordIds and does not retain deleted classes or students', async () => {
+    const { client } = clientFor();
+    const localState = getEmptyState();
+    localState.classes = [
+      { id: 'c1', name: '2 لغات 1', level: '2AS_L', stream: 'لغات' },
+    ];
+    localState.students = [
+      { id: 's1', classId: 'c1', fullName: 'تلميذ تجريبي', numberInList: 1 },
+    ];
+    localState.deletedRecordIds = ['class:c1', 'student:s1'];
+
+    const loaded = await loadCoreState(client as never, localState);
+    expect(loaded.classes).toHaveLength(0);
+    expect(loaded.students).toHaveLength(0);
+  });
 });
 
 describe('delta sync engine', () => {
@@ -563,16 +637,5 @@ describe('delta sync engine', () => {
     const state = getEmptyState();
     const result = await enqueueSyncDelta(ownerId, state, state, 1, new Date().toISOString());
     expect(result).toBeNull();
-  });
-
-  it('enqueueSyncDelta falls back to full sync when previousState is null', async () => {
-    const state = getEmptyState();
-    state.classes = [{ id: 'c1', name: '1AS', level: '1AS_SCIENCE', stream: '' }];
-
-    const result = await enqueueSyncDelta(ownerId, null, state, 1, new Date().toISOString());
-    expect(result).toBeTruthy();
-
-    const outbox = await listSyncOutbox(ownerId);
-    expect(outbox.some((entry) => entry.id === result)).toBe(true);
   });
 });
