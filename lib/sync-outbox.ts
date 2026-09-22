@@ -282,6 +282,12 @@ export function getSyncOperationsDelta(
     operations.push({ id: 'settings:settings', entity: 'settings', action: 'upsert', recordId: 'settings', payload: nextSettings });
   }
 
+  const deletedClassIds = new Set(
+    previousState.classes
+      .filter((c) => !nextState.classes.some((nc) => nc.id === c.id))
+      .map((c) => c.id),
+  );
+
   const collectionsToCheck: [SyncEntity, { id: string }[], { id: string }[]][] = [
     ['class', previousState.classes, nextState.classes],
     ['student', previousState.students, nextState.students],
@@ -300,6 +306,11 @@ export function getSyncOperationsDelta(
     const nextIds = new Set(nextItems.map((item) => item.id));
     for (const item of prevItems) {
       if (!nextIds.has(item.id)) {
+        if (deletedClassIds.size > 0 && 'classId' in item && typeof (item as any).classId === 'string') {
+          if (deletedClassIds.has((item as any).classId)) {
+            continue;
+          }
+        }
         const id = `delete:${entity}:${item.id}`;
         addedDeleteIds.add(id);
         operations.push({ id, entity, action: 'delete', recordId: item.id });
@@ -309,6 +320,7 @@ export function getSyncOperationsDelta(
 
   const nextSessionsMap = new Map(nextState.sessions.map((s) => [s.id, s]));
   for (const prevSession of previousState.sessions) {
+    if (deletedClassIds.has(prevSession.classId)) continue;
     const nextSession = nextSessionsMap.get(prevSession.id);
     if (!nextSession) continue;
 

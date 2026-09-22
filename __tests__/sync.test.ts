@@ -30,6 +30,7 @@ import {
 import { getDeletedRecordIds, isAuthenticatedOwner } from '@/hooks/useCloudAppState';
 import {
   applySyncOutboxEntry,
+  clearCloudRosterData,
   getCloudRecordId,
   loadCoreState,
   SyncConflictError,
@@ -705,5 +706,142 @@ describe('delta sync engine', () => {
     expect(loaded.timetable[0].id).toBe('tt1');
     expect(loaded.lessonProgress).toHaveLength(1);
     expect(loaded.lessonProgress[0].id).toBe('lp1');
+  });
+
+  it('loadCoreState discards orphaned records when parent class is absent', async () => {
+    const mockClient = {
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null }) },
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              is: vi.fn().mockResolvedValue({ data: [], error: null }),
+            }),
+            is: vi.fn().mockResolvedValue({ data: [], error: null }),
+            data: [],
+            error: null,
+          }),
+        }),
+      }),
+    } as any;
+
+    const localState = {
+      ...getEmptyState(),
+      isDemo: false,
+      classes: [],
+      students: [{ id: 'st1', classId: 'deleted-class', fullName: 'تلميذ يتيم', numberInList: 1 }],
+      sessions: [{ id: 's1', classId: 'deleted-class', date: '2026-09-22', startTime: '08:00', endTime: '09:00', sessionGoals: '', accomplishments: '', nextSteps: '', teacherNotes: '', attendance: {} }],
+      grades: [{ id: 'g1', studentId: 'st1', classId: 'deleted-class', trimester: 1 as const, exam: 15 }],
+      timetable: [{ id: 'tt1', classId: 'deleted-class', dayOfWeek: 0, startTime: '08:00', endTime: '09:00' }],
+      lessonProgress: [{ id: 'lp1', classId: 'deleted-class', unitId: 'u1', status: 'COMPLETED' as const }],
+    };
+
+    const loaded = await loadCoreState(mockClient, localState);
+    expect(loaded.classes).toHaveLength(0);
+    expect(loaded.students).toHaveLength(0);
+    expect(loaded.sessions).toHaveLength(0);
+    expect(loaded.grades).toHaveLength(0);
+    expect(loaded.timetable).toHaveLength(0);
+    expect(loaded.lessonProgress).toHaveLength(0);
+  });
+
+  it('clearCloudRosterData invokes clear_roster_data rpc when available', async () => {
+    const rpcMock = vi.fn().mockResolvedValue({ data: null, error: null });
+    const mockClient = {
+      rpc: rpcMock,
+    } as any;
+
+    await clearCloudRosterData(mockClient, 'owner-1');
+    expect(rpcMock).toHaveBeenCalledWith('clear_roster_data');
+  });
+
+  it('clearCloudRosterData falls back to table and tombstone deletion when rpc fails', async () => {
+    const deletedTables: string[] = [];
+    const fromMock = vi.fn((table: string) => ({
+      delete: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            in: vi.fn().mockImplementation(() => {
+              deletedTables.push(table);
+              return Promise.resolve({ data: null, error: null });
+            }),
+            then: (resolve: any) => {
+              deletedTables.push(table);
+              return Promise.resolve(resolve({ data: null, error: null }));
+            },
+          }),
+        }),
+      }),
+    }));
+
+    const mockClient = {
+      rpc: vi.fn().mockImplementation((fn: string) => {
+        if (fn === 'clear_roster_data') return Promise.resolve({ data: null, error: new Error('RPC not found') });
+        if (fn === 'default_workspace_id') return Promise.resolve({ data: '11111111-1111-4111-8111-111111111111', error: null });
+        return Promise.resolve({ data: null, error: null });
+      }),
+      from: fromMock,
+    } as any;
+
+    await clearCloudRosterData(mockClient, 'owner-1');
+    expect(deletedTables).toEqual(
+      expect.arrayContaining([
+        'attendance',
+        'session_behaviors',
+        'sessions',
+        'grades',
+        'students',
+        'timetable_slots',
+        'lesson_progress',
+        'classes',
+        'sync_tombstones',
+        'sync_operations',
+      ]),
+    );
+  });
+
+  it('getDeletedRecordIds prunes cascaded child deletions when parent class is deleted', () => {
+    const previous = {
+      ...getEmptyState(),
+      classes: [{ id: 'c1', name: 'قسم 1', level: '1AS_SCIENCE' as const, stream: '' }],
+      students: [{ id: 'st1', classId: 'c1', fullName: 'تلميذ 1', numberInList: 1 }],
+      sessions: [{ id: 'sess1', classId: 'c1', date: '2026-09-22', startTime: '08:00', endTime: '09:00', sessionGoals: '', accomplishments: '', nextSteps: '', teacherNotes: '', attendance: { st1: 'ABSENT' as const } }],
+      grades: [{ id: 'g1', studentId: 'st1', classId: 'c1', trimester: 1 as const, exam: 15 }],
+      timetable: [{ id: 'tt1', classId: 'c1', dayOfWeek: 0, startTime: '08:00', endTime: '09:00' }],
+      lessonProgress: [{ id: 'lp1', classId: 'c1', unitId: 'u1', status: 'COMPLETED' as const }],
+    };
+
+    const next = {
+      ...getEmptyState(),
+      classes: [],
+      students: [],
+      sessions: [],
+      grades: [],
+      timetable: [],
+      lessonProgress: [],
+    };
+
+    const deletedIds = getDeletedRecordIds(previous, next);
+    expect(deletedIds).toEqual(['class:c1']);
+    expect(deletedIds).not.toContain('student:st1');
+    expect(deletedIds).not.toContain('session:sess1');
+    expect(deletedIds).not.toContain('grade:g1');
+  });
+
+  it('getDeletedRecordIds retains student deletion when parent class remains', () => {
+    const previous = {
+      ...getEmptyState(),
+      classes: [{ id: 'c1', name: 'قسم 1', level: '1AS_SCIENCE' as const, stream: '' }],
+      students: [{ id: 'st1', classId: 'c1', fullName: 'تلميذ 1', numberInList: 1 }],
+    };
+
+    const next = {
+      ...getEmptyState(),
+      classes: [{ id: 'c1', name: 'قسم 1', level: '1AS_SCIENCE' as const, stream: '' }],
+      students: [],
+    };
+
+    const deletedIds = getDeletedRecordIds(previous, next);
+    expect(deletedIds).toEqual(['student:st1']);
   });
 });

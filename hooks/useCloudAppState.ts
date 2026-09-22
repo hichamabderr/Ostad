@@ -7,7 +7,7 @@ import { loadAppStateCache, saveAppStateCache } from '@/lib/state-cache';
 import { clearTeacherBinaryFiles } from '@/lib/binary-storage';
 import { clearDashboardTasks } from '@/lib/dashboard-tasks';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
-import { applySyncOutboxEntry, loadCoreState, resetCloudWorkspace, SyncConflictError } from '@/lib/supabase/core-sync';
+import { applySyncOutboxEntry, clearCloudRosterData, loadCoreState, resetCloudWorkspace, SyncConflictError } from '@/lib/supabase/core-sync';
 import { flushMemorandaOutbox } from '@/lib/supabase/memoranda-storage';
 import {
   enqueueSyncDelta,
@@ -67,6 +67,12 @@ function isLocalOnlyCloudError(error: unknown): boolean {
 }
 
 export function getDeletedRecordIds(previous: AppState, next: AppState): string[] {
+  const deletedClassIds = new Set(
+    previous.classes
+      .filter((c) => !next.classes.some((nc) => nc.id === c.id))
+      .map((c) => c.id),
+  );
+
   const collections = [
     ['class', previous.classes, next.classes],
     ['student', previous.students, next.students],
@@ -80,10 +86,17 @@ export function getDeletedRecordIds(previous: AppState, next: AppState): string[
   const deleted = collections.flatMap(([entity, previousRecords, nextRecords]) => {
     const nextIds = new Set(nextRecords.map((record) => record.id));
     return previousRecords
-      .filter((record) => !nextIds.has(record.id))
+      .filter((record) => {
+        if (nextIds.has(record.id)) return false;
+        if (deletedClassIds.size > 0 && 'classId' in record && typeof (record as any).classId === 'string') {
+          if (deletedClassIds.has((record as any).classId)) return false;
+        }
+        return true;
+      })
       .map((record) => `${entity}:${record.id}`);
   });
   for (const session of previous.sessions) {
+    if (deletedClassIds.has(session.classId)) continue;
     if (!next.sessions.some((item) => item.id === session.id)) continue;
     const nextSession = next.sessions.find((item) => item.id === session.id);
     if (!nextSession) continue;
@@ -687,6 +700,27 @@ export function useCloudAppState(user: User | null) {
       pendingSaveTimerRef.current = null;
     }
 
+    if (user) {
+      const client = createSupabaseBrowserClient();
+      if (!client) throw new Error('لا يمكن مزامنة إعادة التعيين دون اتصال بالخادم السحابي.');
+
+      // Purge outbox so any old pending or failed operations are cleared
+      await clearSyncOutbox(user.id);
+      setCloudStatus('sync-pending');
+      setSyncError(null);
+
+      try {
+        await clearCloudRosterData(client, user.id);
+        // Purge outbox again to ensure clean slate
+        await clearSyncOutbox(user.id);
+      } catch (error) {
+        setCloudStatus('sync-failed');
+        const message = describeCloudError(error).message;
+        setSyncError(message);
+        throw error;
+      }
+    }
+
     const previousState = latestStateRef.current;
     const nextState: AppState = {
       ...previousState,
@@ -694,54 +728,21 @@ export function useCloudAppState(user: User | null) {
       students: [],
       sessions: [],
       grades: [],
+      timetable: [],
       lessonProgress: [],
       activeClassId: null,
-      deletedRecordIds: Array.from(new Set([
-        ...(previousState.deletedRecordIds || []),
-        ...getDeletedRecordIds(previousState, {
-          ...previousState,
-          classes: [],
-          students: [],
-          sessions: [],
-          grades: [],
-          lessonProgress: [],
-          activeClassId: null,
-        }),
-      ])),
+      deletedRecordIds: [],
     };
 
-    setState(nextState);
+    sharedAppState = nextState;
     latestStateRef.current = nextState;
-    lastSyncedStateRef.current = null;
+    lastSyncedStateRef.current = nextState;
+    setState(nextState);
     await saveAppStateCache(nextState);
 
-    if (!user) return;
-    const client = createSupabaseBrowserClient();
-    if (!client) throw new Error('لا يمكن مزامنة إعادة التعيين دون اتصال بالخادم السحابي.');
-
-    setCloudStatus('sync-pending');
-    revisionRef.current += 1;
-    const revision = revisionRef.current;
-    const updatedAt = new Date().toISOString();
-    const entryId = await enqueueSyncState(user.id, nextState, revision, updatedAt);
-    const flushed = await flushSyncOutbox(client, user.id, syncingRef, (error) => {
-      const message = describeCloudError(error).message;
-      setSyncError(message);
-      setCloudStatus(error instanceof Error && error.name === 'SyncConflictError' ? 'conflict' : 'sync-failed');
-      void registerConflict(error);
-    });
-    if (!flushed || (await listSyncOutbox(user.id)).length > 0) {
-      throw new Error('تعذر تأكيد حذف الأقسام والتلاميذ في السحابة.');
-    }
-
-    await removeSyncOutboxEntry(entryId);
-    lastSyncedStateRef.current = nextState;
     setSyncError(null);
-    setCloudStatus('ready');
-    setState((current) => ({
-      ...current,
-      deletedRecordIds: current.deletedRecordIds?.filter((id) => !nextState.deletedRecordIds?.includes(id)) || [],
-    }));
+    setCloudStatus(user ? 'ready' : 'local-only');
+    setConflicts([]);
   };
 
   const resetWorkspace = async (): Promise<void> => {

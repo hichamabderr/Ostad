@@ -83,11 +83,12 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
       await clearRosterData();
       setShowResetConfirm(false);
       setShowSuccessMsg("تمت إعادة تعيين الأقسام والتلاميذ ومزامنتها بنجاح.");
+      showToast("تمت إعادة تعيين الأقسام والتلاميذ ومزامنتها بنجاح.", "success");
       setTimeout(() => setShowSuccessMsg(""), 3000);
     } catch (error) {
       console.error("Roster reset failed:", error);
       setShowResetConfirm(false);
-      showToast("تعذر تأكيد إعادة التعيين في السحابة. بقيت العملية في طابور المزامنة.", "error");
+      showToast("تعذر تأكيد إعادة تعيين الأقسام والتلاميذ في السحابة. يرجى التحقق من الاتصال وإعادة المحاولة.", "error");
     }
   };
 
@@ -841,8 +842,8 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
               <br />
               <br />
               <span className="text-slate-500 font-normal">
-                ملاحظة: سيتم الإبقاء على ملفك المهني وإعدادات التطبيق وجدول
-                التوقيت.
+                ملاحظة: سيتم الإبقاء على ملفك المهني، وإعدادات التطبيق،
+                والمذكرات والتحاضير البيداغوجية.
               </span>
             </div>
             <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">

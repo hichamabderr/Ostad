@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getEmptyState, isDemoState, type AppState } from '@/lib/storage';
-import type { ClassRoom, SessionRecord, Student, StudentGrade, TimetableSlot } from '@/lib/types';
+import type { ClassLessonProgress, ClassRoom, SessionRecord, Student, StudentGrade, TimetableSlot } from '@/lib/types';
 import type { Database } from './database.types';
 import { getWeeklyHours } from '@/lib/curriculum-data';
 import { enqueueSyncState, type SyncEntity, type SyncOperation, type SyncOutboxEntry } from '@/lib/sync-outbox';
@@ -363,9 +363,13 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
         familyStatus: profile.family_status || undefined,
         gender: profile.gender === 'M' || profile.gender === 'F' ? profile.gender : undefined,
       } : localState.profile,
-      classes, students, grades,
-      sessions, timetable,
-      lessonProgress, customUnits, lessonPlans, dashboardTasks,
+      classes,
+      students: students.filter((s: Student) => classes.some((c: ClassRoom) => c.id === s.classId)),
+      grades: grades.filter((g: StudentGrade) => classes.some((c: ClassRoom) => c.id === g.classId)),
+      sessions: sessions.filter((s: SessionRecord) => classes.some((c: ClassRoom) => c.id === s.classId)),
+      timetable: timetable.filter((t: TimetableSlot) => classes.some((c: ClassRoom) => c.id === t.classId)),
+      lessonProgress: lessonProgress.filter((p: ClassLessonProgress) => classes.some((c: ClassRoom) => c.id === p.classId)),
+      customUnits, lessonPlans, dashboardTasks,
       unitPdfFiles: {
         ...(localState.unitPdfFiles || {}),
         ...remoteUnitPdfFiles,
@@ -536,4 +540,47 @@ export async function applySyncOutboxEntry(client: Client, ownerId: string, entr
 export async function resetCloudWorkspace(client: Client, ownerId: string): Promise<void> {
   const result = await client.rpc('reset_workspace');
   if (result.error) throw result.error;
+}
+
+export async function clearCloudRosterData(client: Client, ownerId: string): Promise<void> {
+  const c = client as AnyClient;
+  const rpcResult = await c.rpc('clear_roster_data');
+  if (!rpcResult.error) {
+    return;
+  }
+
+  try {
+    const wid = await workspaceId(c, ownerId);
+    const tables = [
+      'attendance',
+      'session_behaviors',
+      'sessions',
+      'grades',
+      'students',
+      'timetable_slots',
+      'lesson_progress',
+      'classes',
+    ] as const;
+
+    for (const table of tables) {
+      const { error } = await c.from(table).delete().eq('owner_id', ownerId).eq('workspace_id', wid);
+      if (error) {
+        console.warn(`Direct delete from ${table} returned:`, error);
+      }
+    }
+
+    await c.from('sync_tombstones')
+      .delete()
+      .eq('owner_id', ownerId)
+      .eq('workspace_id', wid)
+      .in('entity_type', ['class', 'student', 'grade', 'session', 'attendance', 'behavior', 'timetable', 'lessonProgress']);
+
+    await c.from('sync_operations')
+      .delete()
+      .eq('owner_id', ownerId)
+      .eq('workspace_id', wid);
+  } catch (error) {
+    if (schemaError(error)) throw localOnly();
+    throw error;
+  }
 }
