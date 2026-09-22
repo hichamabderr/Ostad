@@ -287,6 +287,9 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
   }, [state.activeClassId, selectedClassId, state.students, state.grades, selectedTrimester]);
 
   const handleSelectClass = (newClassId: string) => {
+    if (isDirtyRef.current) {
+      void persistDraftGrades();
+    }
     setSelectedClassId(newClassId);
     isDirtyRef.current = false;
     onUpdateState(prev => ({ ...prev, activeClassId: newClassId }));
@@ -294,6 +297,9 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
   };
 
   const handleSelectTrimester = (newTri: 1 | 2 | 3) => {
+    if (isDirtyRef.current) {
+      void persistDraftGrades();
+    }
     setSelectedTrimester(newTri);
     isDirtyRef.current = false;
     setGradesDraft(buildDraft(state.students, state.grades, selectedClassId, newTri));
@@ -535,10 +541,29 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
           setSaveToast(true);
         });
     }, 900);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      if (isDirtyRef.current) {
+        void persistDraftGrades();
+      }
+    };
   // Persist the current draft snapshot without retriggering after the state update.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gradesDraft]);
+
+  const persistDraftGradesRef = React.useRef(persistDraftGrades);
+  persistDraftGradesRef.current = persistDraftGrades;
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirtyRef.current) {
+        void persistDraftGradesRef.current();
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   const handleSaveAllGrades = async () => {
     triggerHapticFeedback();

@@ -167,11 +167,12 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
 
   const confirmImportJSON = async () => {
     if (!pendingImportedState) return;
+    const stateToRestore = pendingImportedState;
+    setPendingImportedState(null);
     try {
-      await replaceStateFromBackup(pendingImportedState);
-      const hasPdfReferences = Object.values(pendingImportedState.unitPdfFiles || {})
+      await replaceStateFromBackup(stateToRestore);
+      const hasPdfReferences = Object.values(stateToRestore.unitPdfFiles || {})
         .some((file) => Boolean(file.fileStorageKey || file.fileDataUrl));
-      setPendingImportedState(null);
       showToast(
         hasPdfReferences
           ? "تمت استعادة البيانات. استعد أرشيف PDF ZIP بشكل منفصل لإظهار الملفات المحلية."

@@ -195,7 +195,7 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
   const handleCreateTodaySession = async () => {
     const todayStr = getLocalDateString();
     const newSession: SessionRecord = {
-      id: `ses-${uuidv4()}`,
+      id: uuidv4(),
       classId: selectedClassId,
       date: todayStr,
       startTime: '08:00',
@@ -268,7 +268,7 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
           if (exists) continue;
 
           newSessions.push({
-            id: `ses-gen-${uuidv4()}`,
+            id: uuidv4(),
             classId: selectedClassId,
             date: dateStr,
             startTime: matchSlot.startTime,

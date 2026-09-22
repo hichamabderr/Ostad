@@ -204,7 +204,7 @@ export const SessionCahier: React.FC<SessionCahierProps> = () => {
     }
 
     const newSession: SessionRecord = {
-      id: `ses-${uuidv4()}`,
+      id: uuidv4(),
       classId: state.activeClassId,
       unitId: effectiveSelectedUnitId,
       date: sessionDate,
@@ -232,7 +232,7 @@ export const SessionCahier: React.FC<SessionCahierProps> = () => {
         };
       } else {
         newProg.push({
-          id: `prog-${uuidv4()}`,
+          id: uuidv4(),
           classId: prev.activeClassId!,
           unitId: effectiveSelectedUnitId,
           status: 'COMPLETED',

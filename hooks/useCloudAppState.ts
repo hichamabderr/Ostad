@@ -348,6 +348,13 @@ export function useCloudAppState(user: User | null) {
           sharedRevision = remoteState.cloudRevision;
         }
         setCloudStatus('ready');
+        void listSyncOutbox(user.id).then((pending) => {
+          if (pending.length > 0 && active) {
+            void flushSyncOutbox(client, user.id, syncingRef, (err) => {
+              console.error('Initial outbox flush failed:', err);
+            });
+          }
+        });
       })
       .catch((error) => {
         if (!active) return;

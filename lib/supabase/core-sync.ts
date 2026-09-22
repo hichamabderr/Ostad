@@ -294,12 +294,14 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
       .map((r: any) => fromRow('session', r))
       .filter(Boolean);
     const sessionsById = new Map(remoteSessions.map((session) => [session.id, session]));
+    const localSessionsById = new Map((localState.sessions || []).map((s) => [s.id, s]));
     for (const session of remoteSessions) {
-      session.attendance = {};
-      session.disruptions = [];
-      session.unwrittenLessons = [];
-      session.poorParticipation = [];
-      session.goodParticipation = [];
+      const local = localSessionsById.get(session.id);
+      session.attendance = { ...(local?.attendance || {}) };
+      session.disruptions = Array.from(new Set([...(local?.disruptions || [])]));
+      session.unwrittenLessons = Array.from(new Set([...(local?.unwrittenLessons || [])]));
+      session.poorParticipation = Array.from(new Set([...(local?.poorParticipation || [])]));
+      session.goodParticipation = Array.from(new Set([...(local?.goodParticipation || [])]));
     }
     for (const row of by('attendance')) {
       const session = sessionsById.get(row.session_id);
@@ -323,7 +325,9 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
       const session = sessionsById.get(row.session_id);
       const target = behaviorTargets[row.behavior];
       if (session && target) {
-        (session[target] ??= []).push(row.student_id);
+        if (!session[target]?.includes(row.student_id)) {
+          (session[target] ??= []).push(row.student_id);
+        }
       }
     }
     const sessions = retainLocal('session', remoteSessions, localState.sessions);

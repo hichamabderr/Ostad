@@ -102,7 +102,7 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
         };
       } else {
         updated.push({
-          id: `prog-note-${unitId}-${uuidv4()}`,
+          id: uuidv4(),
           classId: prev.activeClassId || (prev.classes[0]?.id || 'default'),
           unitId,
           status: 'IN_PROGRESS',
@@ -157,7 +157,7 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
         };
       } else {
         updatedProgress.push({
-          id: `prog-${uuidv4()}`,
+          id: uuidv4(),
           classId: prev.activeClassId!,
           unitId,
           status,
@@ -174,7 +174,7 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
 
   const handleOpenAddUnit = () => {
     setEditingUnit({
-      id: `custom-u-${uuidv4()}`,
+      id: uuidv4(),
       level: selectedLevel,
       sectionNumber: 1,
       sectionName: 'مقطع إضافي / مخصص',
