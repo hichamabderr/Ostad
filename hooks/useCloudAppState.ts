@@ -296,10 +296,14 @@ export function useCloudAppState(user: User | null) {
       return;
     }
     const timer = window.setTimeout(() => {
-      void saveAppStateCache(state).catch((error) => {
-        setLocalStorageError(error instanceof Error ? error.message : 'تعذر حفظ النسخة المحلية.');
-        console.error('Local state save failed:', error);
-      });
+      void saveAppStateCache(state)
+        .then(() => {
+          setLocalStorageError(null);
+        })
+        .catch((error) => {
+          setLocalStorageError(error instanceof Error ? error.message : 'تعذر حفظ النسخة المحلية.');
+          console.error('Local state save failed:', error);
+        });
     }, 400);
     return () => window.clearTimeout(timer);
   }, [isMounted, state, user]);

@@ -73,8 +73,45 @@ export async function commitRosterImportBatch(
   }
 
   // Resilient Direct Table Upsert Fallback
+  let wid: string | null = null;
   const widResult = await (client as any).rpc('default_workspace_id');
-  const wid = typeof widResult.data === 'string' ? widResult.data : null;
+  if (typeof widResult.data === 'string' && widResult.data) {
+    wid = widResult.data;
+  } else {
+    const { data: ws } = await (client as any).from('workspaces').select('id').eq('owner_id', userId).maybeSingle();
+    if (ws?.id) {
+      wid = ws.id;
+    } else {
+      const { data: createdWs } = await (client as any).from('workspaces').insert({ owner_id: userId }).select('id').single();
+      if (createdWs?.id) wid = createdWs.id;
+    }
+  }
+
+  // Check for existing classes by name to prevent unique constraint collision on (workspace_id, name, academic_year)
+  const { data: existingClasses } = await (client as any)
+    .from('classes')
+    .select('id, name')
+    .eq('owner_id', userId);
+
+  const existingClassMap = new Map<string, string>();
+  for (const c of (existingClasses || []) as Array<{ id?: string; name?: string }>) {
+    if (typeof c.name === 'string' && typeof c.id === 'string') {
+      existingClassMap.set(c.name.trim(), c.id);
+    }
+  }
+
+  for (const c of mappedClasses) {
+    const matchedExistingId = existingClassMap.get(c.name);
+    if (matchedExistingId && matchedExistingId !== c.id) {
+      for (const s of mappedStudents) {
+        if (s.class_id === c.id || s.classId === c.id) {
+          s.class_id = matchedExistingId;
+          s.classId = matchedExistingId;
+        }
+      }
+      c.id = matchedExistingId;
+    }
+  }
 
   const dbClasses = mappedClasses.map((c) => ({
     id: c.id,
@@ -90,6 +127,16 @@ export async function commitRosterImportBatch(
     .from('classes')
     .upsert(dbClasses, { onConflict: 'workspace_id,id' });
   if (classesErr) throw classesErr;
+
+  // Clean out existing students in these classes to prevent duplicate key constraint violations on (workspace_id, class_id, number_in_list)
+  const classIds = Array.from(new Set(mappedClasses.map((c) => c.id)));
+  if (classIds.length > 0) {
+    await (client as any)
+      .from('students')
+      .delete()
+      .eq('owner_id', userId)
+      .in('class_id', classIds);
+  }
 
   const dbStudents = mappedStudents.map((s) => ({
     id: s.id,

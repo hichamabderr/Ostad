@@ -38,11 +38,18 @@ export function getCloudRecordId(ownerId: string, entity: SyncEntity, localId: s
 }
 async function workspaceId(client: AnyClient, ownerId: string): Promise<string> {
   const result = await client.rpc('default_workspace_id');
-  if (result.error) throw result.error;
-  if (typeof result.data !== 'string' || !isUuid(result.data)) {
-    throw new Error('Supabase workspace is unavailable for this user');
+  if (!result.error && typeof result.data === 'string' && isUuid(result.data)) {
+    return result.data;
   }
-  return result.data;
+  const existing = await client.from('workspaces').select('id').eq('owner_id', ownerId).maybeSingle();
+  if (existing.data?.id && isUuid(existing.data.id)) {
+    return existing.data.id;
+  }
+  const created = await client.from('workspaces').insert({ owner_id: ownerId }).select('id').single();
+  if (created.data?.id && isUuid(created.data.id)) {
+    return created.data.id;
+  }
+  throw new Error('Supabase workspace is unavailable for this user');
 }
 
 function toRow(entity: SyncEntity, payload: any, ownerId: string, workspace: string, metadata: SyncMetadata): Record<string, any> {
@@ -469,7 +476,8 @@ async function applyOperationOnce(client: AnyClient, ownerId: string, workspace:
     if (tombstone.data && Number(tombstone.data.revision) >= metadata.revision && tombstone.data.device_id !== metadata.deviceId) {
       throw new SyncConflictError(operation.entity, operation.recordId, Number(tombstone.data.revision), metadata.revision);
     }
-    const result = await client.from(table).upsert(toRow(operation.entity, operation.payload, ownerId, workspace, metadata), { onConflict: 'id' });
+    const row = toRow(operation.entity, operation.payload, ownerId, workspace, metadata);
+    const result = await client.from(table).upsert(row, { onConflict: 'id' });
     if (result.error) throw result.error;
     if (tombstone.data) {
       const cleared = await client.from('sync_tombstones').delete()

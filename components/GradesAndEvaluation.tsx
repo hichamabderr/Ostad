@@ -823,13 +823,13 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
         <div
           role="alert"
           className={`p-3.5 rounded-xl font-bold text-xs flex items-center justify-between gap-3 shadow-md transition-all ${
-            saveStatus === 'pending' || toastMessage.includes('تعذر')
+            toastMessage.includes('تعذر') || toastMessage.includes('خطأ')
               ? 'bg-rose-600 text-white'
               : 'bg-[var(--primary)] text-white'
           }`}
         >
           <div className="flex items-center gap-2 min-w-0">
-            {saveStatus === 'pending' || toastMessage.includes('تعذر') ? (
+            {toastMessage.includes('تعذر') || toastMessage.includes('خطأ') ? (
               <AlertCircle className="w-5 h-5 shrink-0 text-white" />
             ) : (
               <CheckCircle2 className="w-5 h-5 shrink-0 text-white" />
@@ -837,7 +837,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
             <span className="truncate">{toastMessage || `تم حفظ وحساب كافة علامات ومعدلات الفصل ${selectedTrimester} بنجاح!`}</span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {(saveStatus === 'pending' || toastMessage.includes('تعذر')) && (
+            {(toastMessage.includes('تعذر') || toastMessage.includes('خطأ')) && (
               <button
                 type="button"
                 onClick={handleSaveAllGrades}

@@ -25,9 +25,11 @@ export const OfflineIndicator: React.FC<{
       <div className="flex items-center gap-2 min-w-0">
         {localStorageError
           ? <CloudOff className="w-4 h-4 text-rose-400 shrink-0" />
-          : isOnline
-            ? <CloudOff className="w-4 h-4 text-rose-400 shrink-0" />
-            : <WifiOff className="w-4 h-4 text-rose-400 shrink-0" />}
+          : !isOnline
+            ? <WifiOff className="w-4 h-4 text-rose-400 shrink-0" />
+            : cloudStatus === 'sync-pending' || cloudStatus === 'loading'
+              ? <RefreshCw className="w-4 h-4 text-amber-400 animate-spin shrink-0" />
+              : <CloudOff className="w-4 h-4 text-rose-400 shrink-0" />}
         <span className="truncate sm:whitespace-normal">
           {localStorageError
             ? `خطأ في الحفظ المحلي — صدّر نسخة احتياطية فوراً: ${localStorageError}`
