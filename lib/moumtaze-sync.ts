@@ -45,7 +45,7 @@ function formatExcelDate(val: any): string {
  */
 function isIgnoredAdminSheet(sheetName: string): boolean {
   const norm = sheetName.trim().toLowerCase();
-  return /^(مجموع|وافدون|وافدون مغادرون|مغادرون|feuil\s*\d*|sheet\s*\d*|الأوائل|الاوائل|إحصائ|احصائ|توجيه|توزيع|نتائج|تقرير|بطاقة)/i.test(
+  return /(?:مجموع|وافدون|وافدون\s*مغادرون|مغادرون|feuil\s*\d*|sheet\s*\d*|أوائل|اوائل|إحصائ|احصائ|توجيه|توزيع|نتائج|تقرير|بطاقة|استدراك|إستدراك)/i.test(
     norm
   );
 }
@@ -83,6 +83,19 @@ export async function parseMoumtazeFile(file: File): Promise<ParsedMoumtazeResul
 
     if (!rows || rows.length < 5) continue;
 
+    // Check if sheet content indicates results or orientation table
+    let isResultsOrOrientationSheet = false;
+    for (let r = 0; r < Math.min(rows.length, 12); r++) {
+      const row = rows[r];
+      if (!Array.isArray(row)) continue;
+      const rowText = row.map(v => String(v || '')).join(' ');
+      if (/(?:النتائج\s*النهائية|توجيه\s*الأوائل|توجيه\s*التلاميذ|محضر\s*النتائج|مداولات|قبل\s*الإ?ستدراك|بعد\s*الإ?ستدراك)/i.test(rowText)) {
+        isResultsOrOrientationSheet = true;
+        break;
+      }
+    }
+    if (isResultsOrOrientationSheet) continue;
+
     let roomNumber: string | undefined;
     let explicitClassName: string | undefined;
     let headerRowIdx = -1;
@@ -95,7 +108,7 @@ export async function parseMoumtazeFile(file: File): Promise<ParsedMoumtazeResul
     let colFather = -1;
     let colAddress = -1;
 
-    // 1. Scan the top rows (rows 0-14) for metadata and table header
+    // 1. Scan the top rows (rows 0-16) for metadata and table header
     for (let r = 0; r < Math.min(rows.length, 16); r++) {
       const row = rows[r];
       if (!Array.isArray(row)) continue;
@@ -156,6 +169,16 @@ export async function parseMoumtazeFile(file: File): Promise<ParsedMoumtazeResul
 
       // Check if this row is the table header
       const rowTexts = row.map(v => String(v || '').trim());
+
+      // If header contains grade / results / orientation columns, this is NOT a class roster
+      const isGradeOrResultsHeader = rowTexts.some(t =>
+        /معدل\s*الفصل|المعدل\s*السنوي|النتيجة\s*النهائية|^توجيه$/i.test(t)
+      );
+      if (isGradeOrResultsHeader) {
+        isResultsOrOrientationSheet = true;
+        break;
+      }
+
       const hasNumberCol = rowTexts.some(t => /^رقم$/i.test(t));
       const hasNameCol = rowTexts.some(t =>
         /إ?سم.*لقب|لقب.*إ?سم|اسم\s*التلميذ|الاسم\s*واللقب/i.test(t)
@@ -190,19 +213,24 @@ export async function parseMoumtazeFile(file: File): Promise<ParsedMoumtazeResul
     }
 
     // If no student table header was detected in this sheet, skip it
-    if (headerRowIdx === -1 || colName === -1) {
+    if (isResultsOrOrientationSheet || headerRowIdx === -1 || colName === -1) {
       continue;
     }
 
-    // Determine final class name
-    let finalClassName = explicitClassName || sheetName;
-    // Clean up finalClassName (e.g. replace double spaces)
-    finalClassName = finalClassName.replace(/\s+/g, ' ').trim();
+    // Check level consistency between sheetName and explicitClassName
+    // e.g. sheetName="2ر", explicitClassName="3رياضيات" -> sheetName indicates 2AS
+    const { parseAlgerianClass } = await import('./name-normalizer');
+    const parsedSheet = parseAlgerianClass(sheetName);
+    const parsedExplicit = explicitClassName ? parseAlgerianClass(explicitClassName) : null;
 
-    // If sheetName has something informative and explicitClassName was short
-    if (!explicitClassName && sheetName) {
+    let finalClassName = explicitClassName || sheetName;
+    if (parsedSheet && parsedExplicit && parsedSheet.levelNumber !== parsedExplicit.levelNumber) {
+      finalClassName = `${parsedSheet.levelNumber} ${parsedExplicit.officialStream} ${parsedExplicit.groupNumber || parsedSheet.groupNumber || 1}`;
+    } else if (!explicitClassName && sheetName) {
       finalClassName = sheetName;
     }
+    // Clean up finalClassName (e.g. replace double spaces)
+    finalClassName = finalClassName.replace(/\s+/g, ' ').trim();
     
     // Apply canonical normalization for exact matching with Digitization
     const canonicalName = getCanonicalClassName(finalClassName);
@@ -302,6 +330,23 @@ export async function parseMoumtazeFile(file: File): Promise<ParsedMoumtazeResul
       });
     }
   }
+
+  // Disambiguate duplicate class names within the same file if any
+  const countByName = new Map<string, number>();
+  parsedClasses.forEach((c) => {
+    countByName.set(c.className, (countByName.get(c.className) || 0) + 1);
+  });
+
+  const seenByName = new Map<string, number>();
+  parsedClasses.forEach((c) => {
+    if ((countByName.get(c.className) || 0) > 1) {
+      const idx = (seenByName.get(c.className) || 0) + 1;
+      seenByName.set(c.className, idx);
+      const baseName = c.className.replace(/\s+\d+$/, '');
+      c.className = `${baseName} ${idx}`;
+      c.normalizedClassName = normalizeClassName(c.className);
+    }
+  });
 
   return {
     classes: parsedClasses,

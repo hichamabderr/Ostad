@@ -259,12 +259,12 @@ export const SessionCahier: React.FC<SessionCahierProps> = () => {
   };
 
   const handleDeleteSession = async (sessionId: string) => {
+    setDeleteConfirmId(null);
     try {
       await updateStateAndWait(prev => ({
         ...prev,
         sessions: prev.sessions.filter(s => s.id !== sessionId)
       }));
-      setDeleteConfirmId(null);
     } catch (error) {
       console.error('Session delete failed:', error);
       showToast('تعذر حذف الحصة من السحابة.', 'error');

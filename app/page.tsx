@@ -193,8 +193,8 @@ function AppContent({
   };
 
   const isCollapsed = state.sidebarCollapsed || false;
-
-  if (!isMounted || !cloudReady) {
+  const hasLoadedData = state.classes.length > 0 || state.students.length > 0 || Boolean(state.profile?.name && state.profile.name !== 'أستاذ المادة');
+  if (!isMounted || (!cloudReady && !hasLoadedData)) {
     return (
       <div
         className="min-h-screen bg-[var(--bg-page)] flex items-center justify-center"

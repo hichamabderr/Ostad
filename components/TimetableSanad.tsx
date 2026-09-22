@@ -169,8 +169,9 @@ export const TimetableSanad: React.FC<TimetableSanadProps> = () => {
    return;
  }
 
+ const targetSlotId = editingSlotId;
  const newSlot: TimetableSlot = {
- id: editingSlotId || uuid(),
+ id: targetSlotId || uuid(),
  classId: selectedClassId,
  dayOfWeek: selectedDay,
  startTime: selectedStartTime,
@@ -178,15 +179,16 @@ export const TimetableSanad: React.FC<TimetableSanadProps> = () => {
  room: finalRoom
  };
 
+ setIsModalOpen(false);
+ setEditingSlotId(null);
+
  try {
    await updateStateAndWait(prev => ({
      ...prev,
-     timetable: editingSlotId
-       ? prev.timetable.map(slot => (slot.id === editingSlotId ? newSlot : slot))
+     timetable: targetSlotId
+       ? prev.timetable.map(slot => (slot.id === targetSlotId ? newSlot : slot))
        : [...prev.timetable, newSlot]
    }));
-   setIsModalOpen(false);
-   setEditingSlotId(null);
    showToast('تم حفظ حصة التوقيت ومزامنتها مع السحابة.', 'success');
  } catch (error: unknown) {
    console.error('Timetable slot sync failed:', error);
@@ -195,12 +197,12 @@ export const TimetableSanad: React.FC<TimetableSanadProps> = () => {
  };
 
  const handleDeleteSlot = async (slotId: string) => {
+ setDeleteConfirmSlotId(null);
  try {
    await updateStateAndWait(prev => ({
      ...prev,
      timetable: prev.timetable.filter(s => s.id !== slotId)
    }));
-   setDeleteConfirmSlotId(null);
    showToast('تم حذف حصة التوقيت ومزامنة الحذف مع السحابة.', 'success');
  } catch (error: unknown) {
    console.error('Timetable slot deletion sync failed:', error);

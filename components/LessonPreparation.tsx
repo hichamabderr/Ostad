@@ -224,6 +224,7 @@ export const LessonPreparation: React.FC<LessonPreparationProps> = ({
   // Delete attached PDF
   const handleDeletePdf = async () => {
     if (!currentUnit || !deleteConfirmId) return;
+    setDeleteConfirmId(null);
     try {
       await cancelMemorandaUpload(currentUnit.id);
       if (attachedPdf?.cloudStoragePath) {
@@ -248,7 +249,6 @@ export const LessonPreparation: React.FC<LessonPreparationProps> = ({
     setPdfData(undefined);
     setPdfUploadNotice('تمت إزالة ملف الـ PDF من هذه الوحدة.');
     setTimeout(() => setPdfUploadNotice(null), 3000);
-    setDeleteConfirmId(null);
   };
 
   // Word (.doc) Export of official lesson card

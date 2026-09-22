@@ -333,7 +333,7 @@ export function useCloudAppState(user: User | null) {
       setConflicts([]);
     });
     window.setTimeout(() => {
-      if (active) setCloudStatus('loading');
+      if (active && !sharedAppState) setCloudStatus('loading');
     }, 0);
     void loadCoreState(client, latestStateRef.current)
       .then((remoteState) => {
@@ -420,7 +420,7 @@ export function useCloudAppState(user: User | null) {
   useEffect(() => {
     if (!isMounted || !cloudReady) return;
     if (!user) return;
-    if (cloudStatus === 'local-only' || cloudStatus === 'sync-failed' || cloudStatus === 'conflict') return;
+    if (cloudStatus === 'local-only' || cloudStatus === 'conflict') return;
     revisionRef.current += 1;
     sharedRevision = revisionRef.current;
     updatedAtRef.current = new Date().toISOString();
@@ -607,7 +607,10 @@ export function useCloudAppState(user: User | null) {
   };
 
   const handleUpdateState = (updater: (previous: AppState) => AppState) => {
-    if (user && cloudStatus === 'ready') setCloudStatus('sync-pending');
+    if (user && (cloudStatus === 'ready' || cloudStatus === 'sync-failed')) {
+      setCloudStatus('sync-pending');
+      setSyncError(null);
+    }
     setState((previous) => {
       const next = updater(previous);
       const deletedRecordIds = getDeletedRecordIds(previous, next);
@@ -632,12 +635,12 @@ export function useCloudAppState(user: User | null) {
       throw new Error('لا يمكن إعلان نجاح سحابي قبل تسجيل الدخول.');
     }
     const currentStatus = cloudStatusRef.current;
-    if (currentStatus === 'sync-failed' || currentStatus === 'conflict') {
-      throw new Error('توجد عملية مزامنة فاشلة أو متعارضة. أعد المحاولة قبل حفظ تغيير جديد.');
+    if (currentStatus === 'conflict') {
+      throw new Error('توجد عملية مزامنة متعارضة. أعد المحاولة قبل حفظ تغيير جديد.');
     }
 
     await new Promise((resolve) => window.setTimeout(resolve, 0));
-    const deadline = Date.now() + 8_000;
+    const deadline = Date.now() + 2_500;
     let observedPendingWork = false;
     while (Date.now() < deadline) {
       const pending = await listSyncOutbox(user.id);
@@ -645,13 +648,13 @@ export function useCloudAppState(user: User | null) {
       if (pending.length > 0 || status === 'sync-pending' || status === 'loading') {
         observedPendingWork = true;
       }
-      if (status === 'sync-failed' || status === 'conflict' || status === 'local-only') {
+      if (status === 'conflict' || status === 'local-only') {
         throw new Error(syncError || 'تعذر تأكيد الحفظ في السحابة.');
       }
       if (observedPendingWork && status === 'ready' && pending.length === 0) {
         return;
       }
-      await new Promise((resolve) => window.setTimeout(resolve, 250));
+      await new Promise((resolve) => window.setTimeout(resolve, 200));
     }
     throw new Error('تأخر تأكيد الحفظ السحابي. حُفظ التغيير محلياً وستتم إعادة المزامنة تلقائياً.');
   };

@@ -88,6 +88,7 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
   };
 
   const handleSaveUnitNote = async (unitId: string) => {
+    setEditingNoteId(null);
     try {
       await updateStateAndWait(prev => {
       const existingIdx = prev.lessonProgress.findIndex(
@@ -110,7 +111,6 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
       }
       return { ...prev, lessonProgress: updated };
       });
-      setEditingNoteId(null);
     } catch (error) {
       console.error('Curriculum note save failed:', error);
       showToast('تعذر حفظ ملاحظة الوحدة في السحابة.', 'error');
@@ -197,28 +197,29 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
 
   const handleSaveUnit = async () => {
     if (!editingUnit || !editingUnit.title) return;
+    const unitToSave = { ...editingUnit };
+    setIsEditingModalOpen(false);
+    setEditingUnit(null);
 
     try {
       await updateStateAndWait(prev => {
       // Check if it's already in customUnits or if we're overriding an official unit
-      const isCustom = prev.customUnits.some(u => u.id === editingUnit.id);
+      const isCustom = prev.customUnits.some(u => u.id === unitToSave.id);
       let updatedCustom: CurriculumUnit[] = [];
 
       if (isCustom) {
         updatedCustom = prev.customUnits.map(u =>
-          u.id === editingUnit.id ? (editingUnit as CurriculumUnit) : u
+          u.id === unitToSave.id ? (unitToSave as CurriculumUnit) : u
         );
       } else {
         // If editing an official unit or adding brand new, save into customUnits
         updatedCustom = [
-          ...prev.customUnits.filter(u => u.id !== editingUnit.id),
-          editingUnit as CurriculumUnit
+          ...prev.customUnits.filter(u => u.id !== unitToSave.id),
+          unitToSave as CurriculumUnit
         ];
       }
       return { ...prev, customUnits: updatedCustom };
       });
-      setIsEditingModalOpen(false);
-      setEditingUnit(null);
     } catch (error) {
       console.error('Custom unit save failed:', error);
       showToast('تعذر حفظ الوحدة المخصصة في السحابة.', 'error');
@@ -226,12 +227,12 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
   };
 
   const handleDeleteCustomUnit = async (unitId: string) => {
+    setDeleteConfirmId(null);
     try {
       await updateStateAndWait(prev => ({
         ...prev,
         customUnits: prev.customUnits.filter(u => u.id !== unitId)
       }));
-      setDeleteConfirmId(null);
     } catch (error) {
       console.error('Custom unit delete failed:', error);
       showToast('تعذر حذف الوحدة المخصصة من السحابة.', 'error');

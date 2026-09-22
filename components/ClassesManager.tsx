@@ -360,7 +360,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
   // ---------------------------------------------
   const handleOpenAddClass = () => {
     setEditingClass({
-      id: `cls-${Date.now()}`,
+      id: uuidv4(),
       name: '',
       level: '3AS',
       stream: 'علوم تجريبية',
@@ -379,11 +379,15 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     
     // Unify class name on manual save
     const canonicalName = getCanonicalClassName(editingClass.name);
-    const classToSave = { ...editingClass, name: canonicalName };
+    const classId = editingClass.id || uuidv4();
+    const classToSave = { ...editingClass, id: classId, name: canonicalName };
+
+    setIsClassModalOpen(false);
+    setEditingClass(null);
 
     try {
       await updateStateAndWait(prev => {
-        const idx = prev.classes.findIndex(c => c.id === editingClass.id);
+        const idx = prev.classes.findIndex(c => c.id === classId);
         const updatedClasses = [...prev.classes];
         if (idx >= 0) updatedClasses[idx] = classToSave as ClassRoom;
         else updatedClasses.push(classToSave as ClassRoom);
@@ -393,8 +397,6 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
           activeClassId: prev.activeClassId || classToSave.id || null
         };
       });
-      setIsClassModalOpen(false);
-      setEditingClass(null);
       showToast('تم حفظ القسم ومزامنته مع السحابة.', 'success');
     } catch (error: unknown) {
       console.error('Class sync failed:', error);
@@ -417,7 +419,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
   const handleOpenAddSlot = (dayOfWeek: number) => {
     const validDay = (dayOfWeek >= 0 && dayOfWeek <= 4 ? dayOfWeek : 0) as 0 | 1 | 2 | 3 | 4;
     setEditingSlot({
-      id: `slot-${Date.now()}`,
+      id: uuidv4(),
       classId: state.classes[0]?.id || '',
       dayOfWeek: validDay,
       startTime: '08:00',
@@ -428,16 +430,17 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
 
   const handleSaveSlot = async () => {
     if (!editingSlot || !editingSlot.classId) return;
+    const slotToSave = { ...editingSlot };
+    setIsSlotModalOpen(false);
+    setEditingSlot(null);
     try {
       await updateStateAndWait(prev => {
-        const idx = prev.timetable.findIndex(s => s.id === editingSlot.id);
+        const idx = prev.timetable.findIndex(s => s.id === slotToSave.id);
         const updatedSlots = [...prev.timetable];
-        if (idx >= 0) updatedSlots[idx] = editingSlot as TimetableSlot;
-        else updatedSlots.push(editingSlot as TimetableSlot);
+        if (idx >= 0) updatedSlots[idx] = slotToSave as TimetableSlot;
+        else updatedSlots.push(slotToSave as TimetableSlot);
         return { ...prev, timetable: updatedSlots };
       });
-      setIsSlotModalOpen(false);
-      setEditingSlot(null);
       showToast('تم حفظ حصة التوقيت ومزامنتها مع السحابة.', 'success');
     } catch (error: unknown) {
       console.error('Timetable slot sync failed:', error);
@@ -492,7 +495,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
         parsedData.classes.forEach((pClass, idx) => {
           // Check if class already exists by exact name or matching normalized name
           let classObj = updatedClasses.find(
-            c => isSameClass(c.name, pClass.className)
+            c => !processedClassIds.includes(c.id) && isSameClass(c.name, pClass.className)
           );
 
           // If not found, check if there's an unused placeholder class (e.g., "قسم جديد" with 0 students)
@@ -618,9 +621,9 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     });
     if (targetClassIdToSelect) setSelectedClassId(targetClassIdToSelect);
     if (summaryNotificationMsg) setImportNotification(summaryNotificationMsg);
+    setPendingImport(null);
     try {
       await commitRosterImportBatch(importedClasses, importedStudents);
-      setPendingImport(null);
       showToast('تم استيراد القوائم ومزامنتها سحابياً بنجاح.', 'success');
     } catch (error) {
       console.error('Atomic roster import sync failed:', error);
@@ -727,7 +730,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
 
       classesToImport.forEach((mClass, idx) => {
         // Check if class already exists by exact name or normalized matching
-        let classObj = updatedClasses.find(c => isSameClass(c.name, mClass.className));
+        let classObj = updatedClasses.find(c => !processedClassIds.includes(c.id) && isSameClass(c.name, mClass.className));
 
         // Check if placeholder class exists
         if (!classObj) {
@@ -859,10 +862,10 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     setImportNotification(
       `تم تجهيز ${classesToImport.length} أفواج للمزامنة من برنامج الممتاز (${totalAdded} تلميذاً جديداً، و ${totalUpdated} تلميذ تم تحديث بياناتهم وحفظ القاعات). سيظهر التأكيد بعد اكتمال المزامنة السحابية.`
     );
+    setIsMoumtazeModalOpen(false);
+    setMoumtazeData(null);
     try {
       await commitRosterImportBatch(importedClasses, importedStudents);
-      setIsMoumtazeModalOpen(false);
-      setMoumtazeData(null);
       showToast('تم استيراد قوائم الممتاز ومزامنتها سحابياً بنجاح.', 'success');
     } catch (error) {
       console.error('Atomic Moumtaze roster sync failed:', error);
@@ -901,6 +904,9 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
       }
     }
 
+    setPastedNames('');
+    setIsPasteModalOpen(false);
+
     if (newStudents.length > 0) {
       try {
         await updateStateAndWait(prev => {
@@ -931,9 +937,6 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
         return;
       }
     }
-
-    setPastedNames('');
-    setIsPasteModalOpen(false);
   };
 
   // Export Students to Excel
@@ -963,17 +966,23 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
 
   const handleSaveStudent = async () => {
     if (!editingStudent || !editingStudent.fullName || !selectedClassId) return;
+    const studentToSave = {
+      ...editingStudent,
+      id: editingStudent.id || uuidv4(),
+    };
+    setIsStudentModalOpen(false);
+    setEditingStudent(null);
     try {
       await updateStateAndWait(prev => {
-      const idx = prev.students.findIndex(s => s.id === editingStudent.id);
+      const idx = prev.students.findIndex(s => s.id === studentToSave.id);
       let updated = [...prev.students];
       if (idx >= 0) {
-        updated[idx] = editingStudent as Student;
+        updated[idx] = studentToSave as Student;
       } else {
         updated.push({
-          ...(editingStudent as Student),
+          ...(studentToSave as Student),
           classId: selectedClassId,
-          numberInList: editingStudent.numberInList || classStudents.length + 1
+          numberInList: studentToSave.numberInList || classStudents.length + 1
         });
       }
 
@@ -996,8 +1005,6 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
 
       return { ...prev, students: renumbered };
       });
-      setIsStudentModalOpen(false);
-      setEditingStudent(null);
       showToast('تم حفظ التلميذ ومزامنته مع السحابة.', 'success');
     } catch (error: unknown) {
       console.error('Student sync failed:', error);
@@ -1055,6 +1062,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
   const handleExecuteDelete = async () => {
     if (!deleteConfirmDialog) return;
     const { type, id } = deleteConfirmDialog;
+    setDeleteConfirmDialog(null);
 
     if (type === 'student') {
       try {
@@ -1119,7 +1127,6 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     } else if (type === 'slot') {
       await handleDeleteSlot(id);
     }
-    setDeleteConfirmDialog(null);
   };
 
   return (

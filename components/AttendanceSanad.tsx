@@ -206,12 +206,12 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
       teacherNotes: '', attendance: {},
       };
 
+    setSelectedSessionId(newSession.id);
     try {
       await updateStateAndWait(prev => ({
         ...prev,
         sessions: [newSession, ...prev.sessions]
       }));
-      setSelectedSessionId(newSession.id);
     } catch (error) {
       console.error('Create session sync failed:', error);
       showToast('تعذر إنشاء الحصة في السحابة.', 'error');
