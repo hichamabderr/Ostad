@@ -33,7 +33,7 @@ import {
 
 interface AttendanceSanadProps {
   onNavigateToTimetable?: () => void;
-  onNavigateToSessions?: () => void;
+  onNavigateToSessions?: (sessionId?: string) => void;
 }
 
 export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
@@ -210,6 +210,7 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
     try {
       await updateStateAndWait(prev => ({
         ...prev,
+        activeClassId: selectedClassId,
         sessions: [newSession, ...prev.sessions]
       }));
     } catch (error) {
@@ -288,6 +289,7 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
     if (newSessions.length > 0) {
       void updateStateAndWait(prev => ({
         ...prev,
+        activeClassId: selectedClassId,
         sessions: [...newSessions, ...prev.sessions]
       }))
         .then(() => {
@@ -550,7 +552,7 @@ export const AttendanceSanad: React.FC<AttendanceSanadProps> = ({
             {onNavigateToSessions && (
               <button
                 type="button"
-                onClick={onNavigateToSessions}
+                onClick={() => onNavigateToSessions(activeSession?.id)}
                 className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-[var(--primary)] border border-[var(--primary)] rounded-xl text-xs font-bold text-white hover:bg-[var(--primary-hover)] cursor-pointer shadow-xs"
               >
                 متابعة في دفتر النصوص

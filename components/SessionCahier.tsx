@@ -8,7 +8,7 @@ import { AppState } from '@/lib/storage';
 import { getLocalDateString } from '@/lib/date-utils';
 import { CurriculumUnit, SessionRecord } from '@/lib/types';
 import { v4 as uuidv4 } from 'uuid';
-import { getMergedCurriculumUnits } from '@/lib/curriculum-data';
+import { getMergedCurriculumUnits, loadAllCurriculum } from '@/lib/curriculum-data';
 import {
   CalendarCheck,
   CheckCircle2,
@@ -26,6 +26,7 @@ import {
   ArrowRight,
   History,
   FileText,
+  FileEdit,
   Search,
   Bold,
   List,
@@ -38,6 +39,8 @@ import {
 import { exportToDoc } from '@/lib/utils';
 
 interface SessionCahierProps {
+  initialSessionId?: string;
+  onClearInitialSession?: () => void;
 }
 
 interface FormattingBarProps {
@@ -111,9 +114,32 @@ function getObjectivesFromUnit(unit: CurriculumUnit): string {
   return parts.join('\n');
 }
 
-export const SessionCahier: React.FC<SessionCahierProps> = () => {
+function getSessionNotes(session: SessionRecord): string {
+  if (session.notes) return session.notes;
+  if (session.teacherNotes) return session.teacherNotes;
+
+  return [
+    session.memoryWhatWorked && `ما نجح: ${session.memoryWhatWorked}`,
+    session.memoryDifficulty && `الصعوبات: ${session.memoryDifficulty}`,
+    session.memoryWhatFailed && `ما يحتاج تحسيناً: ${session.memoryWhatFailed}`,
+    session.memoryNextTimeChange &&
+      `التعديل المقترح للحصة القادمة: ${session.memoryNextTimeChange}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+export const SessionCahier: React.FC<SessionCahierProps> = ({
+  initialSessionId,
+  onClearInitialSession
+}) => {
   const { state, updateStateAndWait } = useAppState();
   const activeClass = state.classes.find(c => c.id === state.activeClassId);
+
+  const [, setCurriculumLoaded] = useState(false);
+  useEffect(() => {
+    void loadAllCurriculum().then(() => setCurriculumLoaded(true));
+  }, []);
 
   const availableUnits = getMergedCurriculumUnits(state.customUnits).filter(
     u => u.level === activeClass?.level
@@ -123,13 +149,8 @@ export const SessionCahier: React.FC<SessionCahierProps> = () => {
   const [sessionDate, setSessionDate] = useState(todayStr);
   const [startTime, setStartTime] = useState('08:00');
   const [endTime, setEndTime] = useState('09:00');
-  const [selectedUnitId, setSelectedUnitId] = useState<string>(
-    availableUnits[0]?.id || '' );
-  const effectiveSelectedUnitId = availableUnits.some(unit => unit.id === selectedUnitId)
-    ? selectedUnitId
-    : availableUnits[0]?.id || '';
-  const selectedUnitObj = availableUnits.find(u => u.id === effectiveSelectedUnitId);
-  const sessionGoals = selectedUnitObj ? getObjectivesFromUnit(selectedUnitObj) : '';
+  const [selectedUnitId, setSelectedUnitId] = useState<string>('');
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(initialSessionId || null);
   const [accomplishments, setAccomplishments] = useState('');
   const [nextSteps, setNextSteps] = useState('');
   // The notebook uses one unified text area. Legacy fields are read through
@@ -143,19 +164,54 @@ export const SessionCahier: React.FC<SessionCahierProps> = () => {
   const [savedSuccessMsg, setSavedSuccessMsg] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  const getSessionNotes = (session: SessionRecord): string => {
-    if (session.notes) return session.notes;
-    if (session.teacherNotes) return session.teacherNotes;
+  // Sync editing session when initialSessionId changes or editingSessionId is set
+  useEffect(() => {
+    const targetId = editingSessionId || initialSessionId;
+    if (targetId) {
+      const ses = state.sessions.find(s => s.id === targetId);
+      if (ses) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setEditingSessionId(ses.id);
+        setSessionDate(ses.date);
+        setStartTime(ses.startTime || '08:00');
+        setEndTime(ses.endTime || '09:00');
+        if (ses.unitId) {
+          setSelectedUnitId(ses.unitId);
+        }
+        setAccomplishments(ses.accomplishments || '');
+        setNextSteps(ses.nextSteps || '');
+        setNotes(getSessionNotes(ses) || '');
+      }
+    }
+  }, [initialSessionId, editingSessionId, state.sessions]);
 
-    return [
-      session.memoryWhatWorked && `ما نجح: ${session.memoryWhatWorked}`,
-      session.memoryDifficulty && `الصعوبات: ${session.memoryDifficulty}`,
-      session.memoryWhatFailed && `ما يحتاج تحسيناً: ${session.memoryWhatFailed}`,
-      session.memoryNextTimeChange &&
-        `التعديل المقترح للحصة القادمة: ${session.memoryNextTimeChange}`,
-    ]
-      .filter(Boolean)
-      .join('\n');
+  // Pre-select next uncompleted unit when no unit is selected
+  const nextSuggestedUnitId = React.useMemo(() => {
+    if (availableUnits.length === 0) return '';
+    const completedUnitIds = new Set(
+      state.lessonProgress
+        .filter(p => p.classId === state.activeClassId && p.status === 'COMPLETED')
+        .map(p => p.unitId)
+    );
+    const nextUnit = availableUnits.find(u => !completedUnitIds.has(u.id)) || availableUnits[0];
+    return nextUnit?.id || '';
+  }, [availableUnits, state.lessonProgress, state.activeClassId]);
+
+  const effectiveSelectedUnitId = availableUnits.some(unit => unit.id === selectedUnitId)
+    ? selectedUnitId
+    : (nextSuggestedUnitId || availableUnits[0]?.id || '');
+  const selectedUnitObj = availableUnits.find(u => u.id === effectiveSelectedUnitId);
+  const sessionGoals = selectedUnitObj ? getObjectivesFromUnit(selectedUnitObj) : '';
+
+  const handleCancelEdit = () => {
+    setEditingSessionId(null);
+    onClearInitialSession?.();
+    setSessionDate(todayStr);
+    setStartTime('08:00');
+    setEndTime('09:00');
+    setAccomplishments('');
+    setNextSteps('');
+    setNotes('');
   };
 
   // Helper for applying markdown or symbols into a specific state field
@@ -196,59 +252,91 @@ export const SessionCahier: React.FC<SessionCahierProps> = () => {
     )
   );
 
-  // Save Session
+  // Save or update Session
   const handleSaveSession = async () => {
     if (!state.activeClassId) {
       showToast('يرجى تحديد القسم أولاً', 'error');
       return;
     }
 
-    const newSession: SessionRecord = {
-      id: uuidv4(),
-      classId: state.activeClassId,
-      unitId: effectiveSelectedUnitId,
-      date: sessionDate,
-      startTime,
-      endTime,
-      sessionGoals,
-      accomplishments,
-      nextSteps,
-      teacherNotes: '',
-      notes,
-      attendance: {}
-    };
+    const existingSession = editingSessionId
+      ? state.sessions.find(s => s.id === editingSessionId)
+      : state.sessions.find(
+          s => s.classId === state.activeClassId && s.date === sessionDate && s.startTime === startTime
+        );
 
     try {
       await updateStateAndWait(prev => {
-      const existingProgIdx = prev.lessonProgress.findIndex(
-        p => p.classId === prev.activeClassId && p.unitId === effectiveSelectedUnitId
-      );
-      let newProg = [...prev.lessonProgress];
-      if (existingProgIdx >= 0) {
-        newProg[existingProgIdx] = {
-          ...newProg[existingProgIdx],
-          status: 'COMPLETED',
-          completedAt: sessionDate
-        };
-      } else {
-        newProg.push({
-          id: uuidv4(),
-          classId: prev.activeClassId!,
-          unitId: effectiveSelectedUnitId,
-          status: 'COMPLETED',
-          completedAt: sessionDate
-        });
-      }
+        let newSessions: SessionRecord[];
+        if (existingSession) {
+          newSessions = prev.sessions.map(s => {
+            if (s.id === existingSession.id) {
+              return {
+                ...s,
+                unitId: effectiveSelectedUnitId,
+                date: sessionDate,
+                startTime,
+                endTime,
+                sessionGoals,
+                accomplishments,
+                nextSteps,
+                teacherNotes: notes,
+                notes
+              };
+            }
+            return s;
+          });
+        } else {
+          const newSession: SessionRecord = {
+            id: uuidv4(),
+            classId: prev.activeClassId!,
+            unitId: effectiveSelectedUnitId,
+            date: sessionDate,
+            startTime,
+            endTime,
+            sessionGoals,
+            accomplishments,
+            nextSteps,
+            teacherNotes: notes,
+            notes,
+            attendance: {}
+          };
+          newSessions = [newSession, ...prev.sessions];
+        }
 
-      return {
-        ...prev,
-        sessions: [newSession, ...prev.sessions],
-        lessonProgress: newProg
-      };
+        const existingProgIdx = prev.lessonProgress.findIndex(
+          p => p.classId === prev.activeClassId && p.unitId === effectiveSelectedUnitId
+        );
+        let newProg = [...prev.lessonProgress];
+        if (effectiveSelectedUnitId) {
+          if (existingProgIdx >= 0) {
+            newProg[existingProgIdx] = {
+              ...newProg[existingProgIdx],
+              status: 'COMPLETED',
+              completedAt: sessionDate
+            };
+          } else {
+            newProg.push({
+              id: uuidv4(),
+              classId: prev.activeClassId!,
+              unitId: effectiveSelectedUnitId,
+              status: 'COMPLETED',
+              completedAt: sessionDate
+            });
+          }
+        }
+
+        return {
+          ...prev,
+          sessions: newSessions,
+          lessonProgress: newProg
+        };
       });
 
       setSavedSuccessMsg(true);
       setTimeout(() => setSavedSuccessMsg(false), 3500);
+      setEditingSessionId(null);
+      onClearInitialSession?.();
       setAccomplishments('');
       setNextSteps('');
       setNotes('');
@@ -449,7 +537,23 @@ ${sessionNotes}
       )}
 
       {/* Session Entry Form */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs space-y-4">
+      <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs space-y-4" id="session-entry-form-card">
+            {editingSessionId && (
+              <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl flex items-center justify-between gap-2 shadow-xs">
+                <div className="flex items-center gap-2 text-xs font-bold">
+                  <FileEdit className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>جاري توثيق وتعديل الحصة المحددة ({sessionDate} | {startTime} – {endTime})</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className="px-2.5 py-1 bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 text-xs font-bold rounded-lg cursor-pointer transition-colors"
+                >
+                  إلغاء التعديل / حصة جديدة
+                </button>
+              </div>
+            )}
+
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 gap-2">
               <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
                 <BookOpen className="w-4 h-4 text-[var(--primary)] shrink-0" />
@@ -613,7 +717,7 @@ ${sessionNotes}
                 onClick={handleSaveSession}
                 className="w-full sm:w-auto min-h-11 flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-xs font-black shadow-md cursor-pointer transition-all" id="btn-save-session-record" >
                 <Save className="w-4 h-4" />
-                <span>حفظ الحصة في الدفتر اليومي وتأكيد الإنجاز</span>
+                <span>{editingSessionId ? 'تأكيد تعديل وتوثيق الحصة في السحابة' : 'حفظ الحصة في الدفتر اليومي وتأكيد الإنجاز'}</span>
               </button>
             </div>
       </div>
@@ -635,20 +739,32 @@ ${sessionNotes}
           <div className="divide-y divide-slate-100">
             {classPastSessions.map(ses => {
               const unit = availableUnits.find(u => u.id === ses.unitId);
+              const isDocumented = Boolean(ses.unitId || ses.accomplishments);
+              const isEditingThis = ses.id === editingSessionId;
 
               return (
-                <div key={ses.id} className="py-3 flex items-start justify-between gap-4 text-sm">
+                <div
+                  key={ses.id}
+                  className={`py-3 flex items-start justify-between gap-4 text-sm rounded-xl px-2 transition-colors ${
+                    isEditingThis ? 'bg-amber-50/70 border border-amber-300' : ''
+                  }`}
+                >
                   <div className="space-y-1 max-w-2xl">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded">
+                      <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-xs">
                         {ses.date}
                       </span>
-                      <span className="text-slate-500 font-mono">
+                      <span className="text-slate-500 font-mono text-xs">
                         {ses.startTime} – {ses.endTime}
                       </span>
                       <span className="font-bold text-slate-900">
-                        {unit ? unit.title : 'حصة غير محددة'}
+                        {unit ? unit.title : (ses.sessionGoals ? ses.sessionGoals.slice(0, 30) : 'حصة غير محددة')}
                       </span>
+                      {!isDocumented && (
+                        <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 rounded border border-amber-200">
+                          بانتظار التوثيق في الدفتر
+                        </span>
+                      )}
                     </div>
                     {ses.accomplishments && (
                       <p className="text-sm leading-7 text-slate-600 whitespace-pre-line">
@@ -670,11 +786,33 @@ ${sessionNotes}
                     )}
                   </div>
 
-                  <button
-                    onClick={() => setDeleteConfirmId(ses.id)}
-                    className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer" title="حذف الحصة" >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingSessionId(ses.id);
+                        const formElem = document.getElementById('session-entry-form-card');
+                        if (formElem) {
+                          formElem.scrollIntoView({ behavior: 'smooth' });
+                        } else {
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-[var(--primary-soft)] text-slate-700 hover:text-[var(--primary)] text-xs font-bold transition-colors cursor-pointer"
+                      title="توثيق / تعديل الحصة"
+                    >
+                      <FileEdit className="w-3.5 h-3.5" />
+                      <span>{isDocumented ? 'تعديل' : 'توثيق الحصة'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteConfirmId(ses.id)}
+                      className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 cursor-pointer transition-colors"
+                      title="حذف الحصة"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               );
             })}

@@ -151,6 +151,7 @@ function AppContent({
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [prepUnit, setPrepUnit] = useState<CurriculumUnit | null>(null);
   const [prepTab, setPrepTab] = useState<"card" | "pdf" | "bank">("card");
+  const [selectedSessionForCahier, setSelectedSessionForCahier] = useState<string | null>(null);
 
   const setCurrentTab = (tab: SanadTab) => {
     router.push(TAB_ROUTES[tab]);
@@ -301,7 +302,10 @@ function AppContent({
           {currentTab === "attendance" && (
             <AttendanceSanad
               onNavigateToTimetable={() => setCurrentTab("timetable")}
-              onNavigateToSessions={() => setCurrentTab("sessions")}
+              onNavigateToSessions={(sessionId) => {
+                setSelectedSessionForCahier(sessionId || null);
+                setCurrentTab("sessions");
+              }}
             />
           )}
 
@@ -313,7 +317,10 @@ function AppContent({
           {currentTab === "council" && <CouncilAnalysis />}
 
           {currentTab === "sessions" && (
-            <SessionCahier />
+            <SessionCahier
+              initialSessionId={selectedSessionForCahier || undefined}
+              onClearInitialSession={() => setSelectedSessionForCahier(null)}
+            />
           )}
 
           {currentTab === "annual_dist" && (
