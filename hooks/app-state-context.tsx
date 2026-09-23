@@ -3,6 +3,7 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import type { AppState } from '@/lib/storage';
 import type { SyncConflictDescriptor } from '@/lib/sync-outbox';
+import type { RosterImportClass, RosterImportStudent } from '@/lib/supabase/roster-import';
 
 export type AppStateUpdater = (updater: (previous: AppState) => AppState) => void;
 export type AppStateSyncUpdater = (updater: (previous: AppState) => AppState) => Promise<void>;
@@ -12,6 +13,11 @@ export interface AppStateContextValue {
   updateState: AppStateUpdater;
   updateStateAndWait: AppStateSyncUpdater;
   replaceStateFromBackup: (state: AppState) => Promise<void>;
+  commitRosterImport: (
+    importedClasses: RosterImportClass[],
+    importedStudents: RosterImportStudent[],
+    nextState: AppState,
+  ) => Promise<void>;
   clearRosterData: () => Promise<void>;
   resetWorkspace: () => Promise<void>;
   conflicts: SyncConflictDescriptor[];

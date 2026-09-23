@@ -57,7 +57,7 @@ begin
     auth.uid()
   from jsonb_array_elements(coalesce(p_classes, '[]'::jsonb)) as c
   where c->>'name' is not null and btrim(c->>'name') <> ''
-  on conflict (workspace_id, id) do update set
+  on conflict (id) do update set
     name = excluded.name,
     level = excluded.level,
     section = excluded.section,
@@ -113,7 +113,7 @@ begin
     nullif(s->>'notes', ''),
     auth.uid()
   from jsonb_array_elements(coalesce(p_students, '[]'::jsonb)) as s
-  on conflict (workspace_id, id) do update set
+  on conflict (id) do update set
     class_id = excluded.class_id,
     full_name = excluded.full_name,
     number_in_list = excluded.number_in_list,

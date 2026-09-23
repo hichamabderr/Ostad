@@ -8,6 +8,7 @@ import { clearTeacherBinaryFiles } from '@/lib/binary-storage';
 import { clearDashboardTasks } from '@/lib/dashboard-tasks';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
 import { applySyncOutboxEntry, clearCloudRosterData, loadCoreState, resetCloudWorkspace, SyncConflictError } from '@/lib/supabase/core-sync';
+import { commitRosterImportBatch, type RosterImportClass, type RosterImportStudent } from '@/lib/supabase/roster-import';
 import { flushMemorandaOutbox } from '@/lib/supabase/memoranda-storage';
 import {
   enqueueSyncDelta,
@@ -221,6 +222,7 @@ export function useCloudAppState(user: User | null) {
   const lastSyncedStateRef = useRef<AppState | null>(sharedLastSyncedState);
   const revisionRef = useRef(sharedRevision);
   const updatedAtRef = useRef(new Date(0).toISOString());
+  const allowEmptyRosterRef = useRef(false);
 
   const registerConflict = async (error: unknown): Promise<void> => {
     if (!(error instanceof SyncConflictError) || !user) return;
@@ -264,39 +266,119 @@ export function useCloudAppState(user: User | null) {
     latestStateRef.current = state;
   }, [state]);
 
+  // Unified initial state initialization: loads IndexedDB cache first, then syncs with Supabase if online
   useEffect(() => {
     let active = true;
-    void loadAppStateCache()
-      .then((cachedState) => {
-        if (!active || !cachedState) return;
-        setState((current) => {
-          if (!isDemoState(current) && (current.classes.length > 0 || current.students.length > 0)) {
-            return current;
+
+    const initializeState = async () => {
+      // 1. Ensure local cache is checked first if in-memory sharedAppState is absent or empty
+      let currentLocal = sharedAppState;
+      if (!currentLocal || (currentLocal.classes.length === 0 && currentLocal.students.length === 0)) {
+        try {
+          const cachedState = await loadAppStateCache();
+          if (cachedState && !isDemoState(cachedState) && (cachedState.classes.length > 0 || cachedState.students.length > 0)) {
+            currentLocal = cachedState;
+            if (active) {
+              sharedAppState = cachedState;
+              latestStateRef.current = cachedState;
+              setState(cachedState);
+            }
           }
-          if (!isDemoState(cachedState) && (cachedState.classes.length > 0 || cachedState.students.length > 0)) {
-            sharedAppState = cachedState;
-            latestStateRef.current = cachedState;
-            return cachedState;
-          }
-          return current;
-        });
-      })
-      .catch((error) => {
-        setLocalStorageError(error instanceof Error ? error.message : 'تعذر تحميل النسخة المحلية.');
-        console.error('Local workspace load failed:', error);
-      });
+        } catch (cacheErr) {
+          console.error('Local workspace load failed:', cacheErr);
+          if (active) setLocalStorageError(cacheErr instanceof Error ? cacheErr.message : 'تعذر تحميل النسخة المحلية.');
+        }
+      }
+
+      // 2. If not authenticated, local workspace is ready
+      if (!user) {
+        if (active) setCloudStatus('ready');
+        return;
+      }
+
+      // 3. Authenticated: load from Supabase
+      const client = createSupabaseBrowserClient();
+      if (!client) {
+        if (active) setCloudStatus('local-only');
+        return;
+      }
+
+      if (active && (!currentLocal || currentLocal.classes.length === 0)) {
+        setCloudStatus('loading');
+      }
+
+      try {
+        const remoteState = await loadCoreState(client, currentLocal || latestStateRef.current);
+        if (!active) return;
+
+        const remoteHasRoster = remoteState.classes.length > 0;
+        const localHasRoster = Boolean(currentLocal && currentLocal.classes.length > 0);
+
+        if (remoteHasRoster) {
+          // Supabase has authoritative data
+          sharedAppState = remoteState;
+          sharedLastSyncedState = remoteState;
+          latestStateRef.current = remoteState;
+          lastSyncedStateRef.current = remoteState;
+          setState(remoteState);
+          void saveAppStateCache(remoteState);
+        } else if (localHasRoster && currentLocal) {
+          // Safeguard: Remote is empty but local has roster! NEVER wipe the user's roster.
+          console.warn('Remote has 0 classes but local cache has classes. Preserving local roster.');
+          sharedAppState = currentLocal;
+          latestStateRef.current = currentLocal;
+          setState(currentLocal);
+        } else {
+          // Clean empty state for new user
+          sharedAppState = remoteState;
+          sharedLastSyncedState = remoteState;
+          latestStateRef.current = remoteState;
+          lastSyncedStateRef.current = remoteState;
+          setState(remoteState);
+        }
+
+        if (typeof remoteState.cloudRevision === 'number' && remoteState.cloudRevision > revisionRef.current) {
+          revisionRef.current = remoteState.cloudRevision;
+          sharedRevision = remoteState.cloudRevision;
+        }
+
+        setCloudStatus('ready');
+
+        // Flush any pending outbox entries
+        const pending = await listSyncOutbox(user.id);
+        if (pending.length > 0 && active) {
+          void flushSyncOutbox(client, user.id, syncingRef, (err) => {
+            console.error('Initial outbox flush failed:', err);
+          });
+        }
+      } catch (error) {
+        if (!active) return;
+        if (isLocalOnlyCloudError(error)) {
+          console.warn('Supabase cloud sync is unavailable. Remaining in local-only mode.');
+          setCloudStatus('local-only');
+          return;
+        }
+        console.error('Cloud state load failed:', describeCloudError(error).message);
+        setCloudStatus('local-only');
+      }
+    };
+
+    void initializeState();
+
     return () => {
       active = false;
     };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
+  // Protected cache save effect
   useEffect(() => {
     if (!isMounted) return;
-    if (state.classes.length === 0 && state.students.length === 0 && sharedAppState && (sharedAppState.classes.length > 0 || sharedAppState.students.length > 0)) {
+    if (!allowEmptyRosterRef.current && state.classes.length === 0 && state.students.length === 0) {
       return;
     }
     const timer = window.setTimeout(() => {
-      void saveAppStateCache(state)
+      void saveAppStateCache(state, { allowEmptyRoster: allowEmptyRosterRef.current })
         .then(() => {
           setLocalStorageError(null);
         })
@@ -308,6 +390,7 @@ export function useCloudAppState(user: User | null) {
     return () => window.clearTimeout(timer);
   }, [isMounted, state, user]);
 
+  // Supabase Auth listener & Realtime change subscriptions
   useEffect(() => {
     if (!user) {
       return;
@@ -315,7 +398,6 @@ export function useCloudAppState(user: User | null) {
 
     const client = createSupabaseBrowserClient();
     if (!client) {
-      window.setTimeout(() => setCloudStatus('local-only'), 0);
       return;
     }
 
@@ -336,55 +418,23 @@ export function useCloudAppState(user: User | null) {
       setSyncError(null);
       setConflicts([]);
     });
-    window.setTimeout(() => {
-      if (active && !sharedAppState) setCloudStatus('loading');
-    }, 0);
-    void loadCoreState(client, latestStateRef.current)
-      .then((remoteState) => {
-        if (!active) return;
-        sharedAppState = remoteState;
-        sharedLastSyncedState = remoteState;
-        setState(remoteState);
-        latestStateRef.current = remoteState;
-        lastSyncedStateRef.current = remoteState;
-        if (typeof remoteState.cloudRevision === 'number' && remoteState.cloudRevision > revisionRef.current) {
-          revisionRef.current = remoteState.cloudRevision;
-          sharedRevision = remoteState.cloudRevision;
-        }
-        setCloudStatus('ready');
-        void listSyncOutbox(user.id).then((pending) => {
-          if (pending.length > 0 && active) {
-            void flushSyncOutbox(client, user.id, syncingRef, (err) => {
-              console.error('Initial outbox flush failed:', err);
-            });
-          }
-        });
-      })
-      .catch((error) => {
-        if (!active) return;
-        if (isLocalOnlyCloudError(error)) {
-          console.warn('Supabase cloud sync is unavailable. Remaining in local-only mode.');
-          setCloudStatus('local-only');
-          return;
-        }
-        console.error('Cloud state load failed:', describeCloudError(error).message);
-        setCloudStatus('local-only');
-      });
 
     const refreshRemoteState = async () => {
       if (!active || !(await hasAuthenticatedOwner(client, user.id))) return;
       if (syncingRef.current || pendingSaveTimerRef.current !== null || (await listSyncOutbox(user.id)).length > 0) return;
 
       const remoteState = await loadCoreState(client, latestStateRef.current);
-      sharedAppState = remoteState;
-      sharedLastSyncedState = remoteState;
-      latestStateRef.current = remoteState;
-      lastSyncedStateRef.current = remoteState;
-      if (typeof remoteState.cloudRevision === 'number' && remoteState.cloudRevision > revisionRef.current) {
-        revisionRef.current = remoteState.cloudRevision;
-        sharedRevision = remoteState.cloudRevision;
+      if (remoteState.classes.length > 0 || latestStateRef.current.classes.length === 0) {
+        sharedAppState = remoteState;
+        sharedLastSyncedState = remoteState;
+        latestStateRef.current = remoteState;
+        lastSyncedStateRef.current = remoteState;
+        if (typeof remoteState.cloudRevision === 'number' && remoteState.cloudRevision > revisionRef.current) {
+          revisionRef.current = remoteState.cloudRevision;
+          sharedRevision = remoteState.cloudRevision;
+        }
+        setState(remoteState);
       }
-      setState(remoteState);
     };
 
     let channel = client.channel(`core-state:${user.id}`);
@@ -416,15 +466,14 @@ export function useCloudAppState(user: User | null) {
       });
     }
     channel = channel.subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') console.error('Realtime subscription failed');
-      });
+      if (status === 'CHANNEL_ERROR') console.error('Realtime subscription failed');
+    });
 
     return () => {
       active = false;
       authListener.subscription.unsubscribe();
       void client.removeChannel(channel);
     };
-  // The subscription is intentionally scoped to the authenticated user.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
@@ -708,6 +757,7 @@ export function useCloudAppState(user: User | null) {
   };
 
   const clearRosterData = async (): Promise<void> => {
+    allowEmptyRosterRef.current = true;
     saveGenerationRef.current += 1;
     if (pendingSaveTimerRef.current !== null && pendingSaveTimerRef.current !== -1) {
       window.clearTimeout(pendingSaveTimerRef.current);
@@ -752,7 +802,7 @@ export function useCloudAppState(user: User | null) {
     latestStateRef.current = nextState;
     lastSyncedStateRef.current = nextState;
     setState(nextState);
-    await saveAppStateCache(nextState);
+    await saveAppStateCache(nextState, { allowEmptyRoster: true });
 
     setSyncError(null);
     setCloudStatus(user ? 'ready' : 'local-only');
@@ -760,6 +810,7 @@ export function useCloudAppState(user: User | null) {
   };
 
   const resetWorkspace = async (): Promise<void> => {
+    allowEmptyRosterRef.current = true;
     saveGenerationRef.current += 1;
     if (pendingSaveTimerRef.current !== null && pendingSaveTimerRef.current !== -1) {
       window.clearTimeout(pendingSaveTimerRef.current);
@@ -776,7 +827,7 @@ export function useCloudAppState(user: User | null) {
     await clearTeacherBinaryFiles();
     await clearDashboardTasks();
     const emptyState = getEmptyState();
-    await saveAppStateCache(emptyState);
+    await saveAppStateCache(emptyState, { allowEmptyRoster: true });
     setLocalStorageError(null);
     setState(emptyState);
     latestStateRef.current = emptyState;
@@ -784,11 +835,111 @@ export function useCloudAppState(user: User | null) {
     revisionRef.current = 0;
   };
 
+  const commitRosterImport = async (
+    importedClasses: RosterImportClass[],
+    importedStudents: RosterImportStudent[],
+    nextState: AppState,
+  ): Promise<void> => {
+    saveGenerationRef.current += 1;
+    if (pendingSaveTimerRef.current !== null && pendingSaveTimerRef.current !== -1) {
+      window.clearTimeout(pendingSaveTimerRef.current);
+      pendingSaveTimerRef.current = null;
+    }
+
+    // Immediately update in-memory state and persist to local cache
+    sharedAppState = nextState;
+    latestStateRef.current = nextState;
+    setState(nextState);
+    await saveAppStateCache(nextState);
+    setLocalStorageError(null);
+
+    if (!user) {
+      return;
+    }
+
+    setCloudStatus('sync-pending');
+    setSyncError(null);
+
+    try {
+      const client = createSupabaseBrowserClient();
+      if (!client) throw new Error('تعذر الوصول إلى الخادم السحابي لتأكيد الاستيراد.');
+
+      // 1. Direct atomic bulk upsert to Supabase classes and students tables
+      const committed = await commitRosterImportBatch(importedClasses, importedStudents);
+
+      // Reconcile local state with any cloud IDs reconciled by the server
+      let reconciledState = nextState;
+      if (committed.classes.length > 0 || committed.students.length > 0) {
+        const classMap = new Map(committed.classes.map(c => [c.name, c.id]));
+        const studentMap = new Map(committed.students.map(s => [`${s.classId}:${s.numberInList}`, s.id]));
+
+        const updatedClasses = nextState.classes.map(c => {
+          const cloudId = classMap.get(c.name);
+          return cloudId && cloudId !== c.id ? { ...c, id: cloudId } : c;
+        });
+
+        const updatedStudents = nextState.students.map(s => {
+          const targetClass = updatedClasses.find(c => c.name === nextState.classes.find(oc => oc.id === s.classId)?.name) || { id: s.classId };
+          const cloudId = studentMap.get(`${targetClass.id}:${s.numberInList}`);
+          return {
+            ...s,
+            classId: targetClass.id,
+            id: cloudId || s.id,
+          };
+        });
+
+        reconciledState = {
+          ...nextState,
+          classes: updatedClasses,
+          students: updatedStudents,
+        };
+        sharedAppState = reconciledState;
+        latestStateRef.current = reconciledState;
+        setState(reconciledState);
+        await saveAppStateCache(reconciledState);
+      }
+
+      // 2. Profile updates if school name, academic year, or state changed
+      if (nextState.profile && (nextState.profile.schoolName || nextState.profile.academicYear || nextState.profile.stateName)) {
+        await (client as any).from('profiles').update({
+          school_name: nextState.profile.schoolName || null,
+          academic_year: nextState.profile.academicYear || null,
+          wilaya: nextState.profile.stateName || null,
+          updated_at: new Date().toISOString(),
+        }).eq('id', user.id);
+      }
+
+      // 3. Clear any pending class/student delta operations from outbox for this user to avoid redundant mutations
+      const pendingEntries = await listSyncOutbox(user.id);
+      for (const entry of pendingEntries) {
+        const hasRosterOp = entry.operations.some((op) => op.entity === 'class' || op.entity === 'student');
+        if (hasRosterOp) {
+          const nonRosterOps = entry.operations.filter((op) => op.entity !== 'class' && op.entity !== 'student');
+          if (nonRosterOps.length === 0) {
+            await removeSyncOutboxEntry(entry.id);
+          }
+        }
+      }
+
+      sharedLastSyncedState = reconciledState;
+      lastSyncedStateRef.current = reconciledState;
+      setCloudStatus('ready');
+      setSyncError(null);
+    } catch (error) {
+      const message = describeCloudError(error).message;
+      console.error('commitRosterImport failed:', message);
+      setSyncError(message);
+      setCloudStatus('sync-failed');
+      throw error;
+    }
+  };
+
   return {
     state,
     handleUpdateState,
     updateStateAndWait,
     replaceStateFromBackup,
+    commitRosterImport,
     clearRosterData,
     resetWorkspace,
     isMounted,

@@ -206,3 +206,21 @@ Supabase، بينما تُحمّل النسخة السحابية الحالية 
   - عند النقر على "متابعة في دفتر النصوص" يتم تمرير معرّف الحصة النشطة المحددة (`selectedSessionId`) لتفعيلها وتحميلها مباشرة في نموذج دفتر النصوص (`SessionCahier`).
   - عند حفظ الحصة في الدفتر اليومي، يقوم النظام بتحديث الحصة المولدة ذاتها والحفاظ الكامل على سجل الحضور والغياب وسلوك التلاميذ المسجل دون إنشاء حصص مكررة غير مرتبطة.
   - إضافة إمكانية توثيق وتعديل الحصص المولدة مباشرة من سجل الحصص السابقة مع إظهار شارة "بانتظار التوثيق في الدفتر"، مع التحميل التلقائي لكامل المنهاج والتحديد الذكي للوحدة التعلمية التالية غير المنجزة.
+- تم حل مشكلة **اختفاء البيانات وتصفيرها بعد الخروج وإعادة الدخول (Zero-Data-Loss Authentication & Roster Persistence)**:
+  - **تصحيح قيد التعارض السحابي (`onConflict: 'id'`)**: تصحيح استهداف القيد في الدفعة السحابية `commitRosterImportBatch` ومخطط قاعدة البيانات `import_roster_batch` من `workspace_id,id` (الذي كان يسبب خطأ PostgreSQL 42P10 وفشل حفظ الأقسام والتلاميذ بنسبة 100%) إلى المفتاح الأساسي الصريح `id`.
+  - **معالجة التعارض والتنظيف غير الهدام للتلاميذ**: الحفاظ على التلاميذ الحاليين وعدم حذفهم عشوائياً عند الاستيراد لحماية العلامات وسجلات الحضور المرتبطة بهم من الحذف المتسلسل (`ON DELETE CASCADE`)، مع إزاحة مؤقتة للترقيم لتفادي تعارض القيد الفريد `(workspace_id, class_id, number_in_list)`.
+  - **تنظيف الشواهد السابقة (`sync_tombstones`)**: إزالة أي شواهد حذف قديمة للأفواج والتلاميذ المستوردين لمنع تجمد طابور المزامنة بسبب `SyncConflictError`.
+  - **القضاء التام على سباق الإقلاع (Startup Race Condition Elimination)**: دمج تحميل الكاش المحلي من IndexedDB مع اتصال السحابة في مسار تهيئة موحد ومتسلسل؛ يُحمّل الكاش المحلي ويُعرض فوراً، ثم تُجلب البيانات السحابية.
+  - **حظر استبدال البيانات المحلية بالقوائم الصفرية (Empty-Roster Overwrite Shield)**: إذا أعادت السحابة 0 أقسام بينما يملك الجهاز كاشاً محلياً عامراً، يتم الاحتفاظ بالقوائم المحلية وجدولتها للرفع السحابي بدلاً من مسحها، مع تفعيل حارس حماية صارم في `saveAppStateCache` يمنع تصفير IndexedDB إلا في حالتي المسح الصريح المتعمد (`clearRosterData` أو `resetWorkspace`).
+  - **ربط الاستيراد الذري بسياق التطبيق (`commitRosterImport`)**: دمج عمليات الاستيراد من الرقمنة والممتاز مباشرة عبر `AppStateContext` لتحديث الحالة والكاش و`lastSyncedStateRef` وتنظيف طابور Outbox من التكرارات غير الضرورية.
+- تم **التدقيق الشامل والتحصين الكامل ضد أخطاء التعارض في قاعدة البيانات (Zero DB Constraint Violations)**:
+  - **التوفيق الاستباقي للكيانات حسب المفاتيح الفريدة (Proactive Unique Key Collision Reconciliation)** في `applyOperationOnce` لكافة الجداول الـ 18:
+    - جدول العلامات `grades`: الكشف عن السجلات الحالية للمطابقة `(workspace_id, student_id, trimester)` وإعادة استخدام المعرّف لمنع انتهاك القيد الفريد `grades_workspace_id_student_id_trimester_key`.
+    - جدول الحصص `sessions`: الكشف عن الحصص الحالية للمطابقة `(workspace_id, class_id, session_date, start_time)` وإعادة استخدام المعرّف لمنع انتهاك `sessions_workspace_id_class_id_session_date_start_time_key`.
+    - جدول الحضور `attendance`: الكشف عن سجل الحضور الحالي `(workspace_id, session_id, student_id)` وإعادة استخدام المعرّف لمنع انتهاك `attendance_workspace_id_session_id_student_id_key`.
+    - جدول استعمال الزمن `timetable_slots`: الكشف عن الحصة الأسبوعية `(workspace_id, class_id, weekday, start_time)` وإعادة استخدام المعرّف لمنع انتهاك `timetable_slots_workspace_id_class_id_weekday_start_time_key`.
+    - جدول تقدم المنهاج `lesson_progress`: الكشف عن تقدم الوحدة `(workspace_id, class_id, unit_key)` لمنع انتهاك `lesson_progress_workspace_id_class_id_unit_key_key`.
+    - جدول مهام اللوحة `dashboard_tasks`: الكشف عن المهمة `(workspace_id, task_id)` لمنع انتهاك `dashboard_tasks_workspace_id_task_id_key`.
+    - جدول مساحات العمل `workspaces`: تحويل جميع عمليات الإنشاء في `workspaceId` و`commitRosterImportBatch` إلى `upsert` مع `onConflict: 'owner_id'` لمنع خطأ `23505 duplicate key value violates unique constraint "workspaces_owner_id_key"` في حالات التزامن.
+    - جدول المذكرات `memoranda_files`: إزالة حصر البحث بالملفات غير المحذوفة وتدوير السجلات السابقة مع تحديث بياناتها لمنع تعارض الفهرس الفريد الجزئي `memoranda_files_workspace_unit_key_idx`.
+    - استيراد القوائم `commitRosterImportBatch`: مطابقة وتوفيق التلاميذ تلقائياً برقم التسجيل أو الترتيب في الفوج `(class_id, number_in_list)` وإعادة استخدام معرّفاتهم السحابية لتفادي التكرار وحماية كافة نقاطهم وحضورهم التاريخي.

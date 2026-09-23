@@ -61,7 +61,6 @@ async function uploadTeacherMemorandumWithContext(
     .eq('workspace_id' as never, context.workspaceId)
     .eq('unit_key', unitId)
     .eq('is_bundled', false)
-    .is('deleted_at', null)
     .maybeSingle();
   if (existing.error) throw existing.error;
 

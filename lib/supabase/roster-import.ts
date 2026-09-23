@@ -15,11 +15,16 @@ export interface RosterImportStudent extends Omit<Student, 'classId'> {
   classId: string;
 }
 
+export interface CommittedRoster {
+  classes: RosterImportClass[];
+  students: RosterImportStudent[];
+}
+
 export async function commitRosterImportBatch(
   classes: RosterImportClass[],
   students: RosterImportStudent[],
-): Promise<void> {
-  if (classes.length === 0) return;
+): Promise<CommittedRoster> {
+  if (classes.length === 0) return { classes: [], students: [] };
   const client = createSupabaseBrowserClient();
   if (!client) {
     throw new Error('تعذر الوصول إلى الخادم السحابي لتأكيد استيراد القوائم.');
@@ -56,23 +61,7 @@ export async function commitRosterImportBatch(
     notes: s.notes || null,
   }));
 
-  try {
-    const rpcResult = await (client as unknown as {
-      rpc: (name: 'import_roster_batch', args: {
-        p_classes: unknown[];
-        p_students: unknown[];
-      }) => Promise<{ error: Error | null }>;
-    }).rpc('import_roster_batch', {
-      p_classes: mappedClasses,
-      p_students: mappedStudents,
-    });
-    if (!rpcResult.error) return;
-    console.warn('RPC import_roster_batch returned error, falling back to direct batch upsert:', rpcResult.error);
-  } catch (rpcErr) {
-    console.warn('RPC import_roster_batch threw, falling back to direct batch upsert:', rpcErr);
-  }
-
-  // Resilient Direct Table Upsert Fallback
+  // Resolve Workspace
   let wid: string | null = null;
   const widResult = await (client as any).rpc('default_workspace_id');
   if (typeof widResult.data === 'string' && widResult.data) {
@@ -82,7 +71,7 @@ export async function commitRosterImportBatch(
     if (ws?.id) {
       wid = ws.id;
     } else {
-      const { data: createdWs } = await (client as any).from('workspaces').insert({ owner_id: userId }).select('id').single();
+      const { data: createdWs } = await (client as any).from('workspaces').upsert({ owner_id: userId }, { onConflict: 'owner_id' }).select('id').single();
       if (createdWs?.id) wid = createdWs.id;
     }
   }
@@ -113,6 +102,67 @@ export async function commitRosterImportBatch(
     }
   }
 
+  const classIds = Array.from(new Set(mappedClasses.map((c) => c.id)));
+
+  // Reconcile students with existing DB records to prevent unique constraint collisions
+  // on (workspace_id, class_id, number_in_list) and preserve grades/attendance foreign keys
+  let existingDbStudents: any[] = [];
+  if (classIds.length > 0) {
+    try {
+      const { data: dbStudents } = await (client as any)
+        .from('students')
+        .select('id, class_id, number_in_list, reg_number, registration_number, full_name')
+        .in('class_id', classIds)
+        .eq('owner_id', userId);
+      if (dbStudents) existingDbStudents = dbStudents;
+    } catch (e) {
+      console.warn('Error fetching existing students for reconciliation:', e);
+    }
+  }
+
+  if (existingDbStudents.length > 0) {
+    const usedDbStudentIds = new Set<string>();
+    for (const s of mappedStudents) {
+      const candidates = existingDbStudents.filter(
+        (ex: any) => ex.class_id === s.class_id && !usedDbStudentIds.has(ex.id)
+      );
+
+      let match = candidates.find((ex: any) =>
+        s.reg_number && (ex.reg_number === s.reg_number || ex.registration_number === s.reg_number)
+      );
+
+      if (!match) {
+        match = candidates.find((ex: any) =>
+          ex.number_in_list === s.number_in_list &&
+          (ex.full_name?.trim() === s.full_name || !ex.full_name)
+        );
+      }
+
+      if (!match) {
+        match = candidates.find((ex: any) => ex.number_in_list === s.number_in_list);
+      }
+
+      if (match) {
+        usedDbStudentIds.add(match.id);
+        s.id = match.id;
+      }
+    }
+  }
+
+  const studentIds = mappedStudents.map((s) => s.id);
+
+  // Clear stale tombstones for these classes and students so they are never blocked by stale deletions
+  try {
+    await (client as any)
+      .from('sync_tombstones')
+      .delete()
+      .eq('owner_id', userId)
+      .in('entity_type', ['class', 'student'])
+      .in('entity_id', [...classIds, ...studentIds]);
+  } catch (err) {
+    console.warn('Tombstone cleanup warning during roster import:', err);
+  }
+
   const dbClasses = mappedClasses.map((c) => ({
     id: c.id,
     workspace_id: wid,
@@ -121,21 +171,55 @@ export async function commitRosterImportBatch(
     level: c.level,
     section: c.section || null,
     weekly_hours: getWeeklyHours(c.level),
+    academic_year: null,
     updated_by: userId,
   }));
+
   const { error: classesErr } = await (client as any)
     .from('classes')
-    .upsert(dbClasses, { onConflict: 'workspace_id,id' });
+    .upsert(dbClasses, { onConflict: 'id' });
   if (classesErr) throw classesErr;
 
-  // Clean out existing students in these classes to prevent duplicate key constraint violations on (workspace_id, class_id, number_in_list)
-  const classIds = Array.from(new Set(mappedClasses.map((c) => c.id)));
-  if (classIds.length > 0) {
-    await (client as any)
-      .from('students')
-      .delete()
-      .eq('owner_id', userId)
-      .in('class_id', classIds);
+  // Avoid wiping existing students (which cascades to delete their grades/attendance).
+  // Only delete students belonging to these classes who are truly absent from the new import.
+  if (classIds.length > 0 && existingDbStudents.length > 0) {
+    try {
+
+      if (existingDbStudents && existingDbStudents.length > 0) {
+        const importedIdSet = new Set(mappedStudents.map((s) => s.id));
+        const idsToDelete = existingDbStudents
+          .map((s: any) => s.id)
+          .filter((id: string) => !importedIdSet.has(id));
+
+        if (idsToDelete.length > 0) {
+          for (let i = 0; i < idsToDelete.length; i += 100) {
+            await (client as any)
+              .from('students')
+              .delete()
+              .in('id', idsToDelete.slice(i, i + 100));
+          }
+        }
+
+        // Temporarily shift existing retained students' numbers by +10000 to prevent
+        // duplicate key constraint violations on (workspace_id, class_id, number_in_list) during renumbering
+        const retained = existingDbStudents.filter((s: any) => importedIdSet.has(s.id));
+        if (retained.length > 0) {
+          for (let i = 0; i < retained.length; i += 50) {
+            const batch = retained.slice(i, i + 50);
+            await Promise.all(
+              batch.map((row: any) =>
+                (client as any)
+                  .from('students')
+                  .update({ number_in_list: row.number_in_list + 10000 })
+                  .eq('id', row.id)
+              )
+            );
+          }
+        }
+      }
+    } catch (cleanErr) {
+      console.warn('Non-destructive student cleanup warning:', cleanErr);
+    }
   }
 
   const dbStudents = mappedStudents.map((s) => ({
@@ -159,7 +243,29 @@ export async function commitRosterImportBatch(
     const chunk = dbStudents.slice(i, i + 100);
     const { error: studentsErr } = await (client as any)
       .from('students')
-      .upsert(chunk, { onConflict: 'workspace_id,id' });
+      .upsert(chunk, { onConflict: 'id' });
     if (studentsErr) throw studentsErr;
   }
+
+  return {
+    classes: mappedClasses.map((c) => ({
+      id: c.id,
+      name: c.name,
+      level: c.level,
+      stream: c.stream,
+    })),
+    students: mappedStudents.map((s) => ({
+      id: s.id,
+      classId: s.class_id,
+      fullName: s.full_name,
+      numberInList: s.number_in_list,
+      regNumber: s.reg_number || undefined,
+      registrationNumber: s.registration_number || undefined,
+      gender: s.gender === 'M' || s.gender === 'F' ? s.gender : undefined,
+      birthDate: s.birth_date || undefined,
+      isRepeater: s.is_repeater,
+      guardianPhone: s.guardian_phone || undefined,
+      notes: s.notes || undefined,
+    })),
+  };
 }

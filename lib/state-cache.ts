@@ -1,5 +1,5 @@
 import { get, set, keys, del } from 'idb-keyval';
-import type { AppState } from './storage';
+import { getEmptyState, isDemoState, type AppState } from './storage';
 
 const STATE_CACHE_KEY = 'sanad:app-state:v3';
 
@@ -64,8 +64,22 @@ export async function loadAppStateCache(): Promise<AppState | null> {
   }
 }
 
-export async function saveAppStateCache(state: AppState): Promise<void> {
+export async function saveAppStateCache(state: AppState, options?: { allowEmptyRoster?: boolean }): Promise<void> {
   if (typeof window === 'undefined') return;
+
+  // Safeguard: do not allow an empty state to wipe out an existing non-empty cache unless explicitly allowed
+  if (!options?.allowEmptyRoster && state.classes.length === 0 && state.students.length === 0) {
+    try {
+      const existing = await get<AppState>(STATE_CACHE_KEY);
+      if (existing && !isDemoState(existing) && (existing.classes.length > 0 || existing.students.length > 0)) {
+        console.warn('Blocked attempt to overwrite non-empty IndexedDB cache with empty roster state.');
+        return;
+      }
+    } catch {
+      // Continue if lookup fails
+    }
+  }
+
   const sanitized = sanitizeStateForCache(state);
 
   try {

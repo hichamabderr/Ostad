@@ -35,6 +35,7 @@ import {
   loadCoreState,
   SyncConflictError,
 } from '@/lib/supabase/core-sync';
+import { loadAppStateCache, saveAppStateCache } from '@/lib/state-cache';
 import { commitRosterImportBatch } from '@/lib/supabase/roster-import';
 import {
   enqueueSyncState,
@@ -529,6 +530,180 @@ describe('core sync', () => {
     expect(loaded.classes).toHaveLength(0);
     expect(loaded.students).toHaveLength(0);
   });
+
+  it('reconciles existing records by business keys to prevent constraint violations', async () => {
+    const existingMap: Record<string, any> = {
+      grades: { id: 'cloud-grade-uuid', revision: 1, sync_revision: 1 },
+      sessions: { id: 'cloud-session-uuid', revision: 1, sync_revision: 1 },
+      attendance: { id: 'cloud-attendance-uuid', revision: 1, sync_revision: 1 },
+      timetable_slots: { id: 'cloud-timetable-uuid', revision: 1, sync_revision: 1 },
+      lesson_progress: { id: 'cloud-progress-uuid', revision: 1, sync_revision: 1 },
+      dashboard_tasks: { id: 'cloud-task-uuid', revision: 1, sync_revision: 1 },
+    };
+
+    const upsertCalls: Record<string, any> = {};
+    const mockClient = {
+      auth: { getUser: async () => ({ data: { user: { id: ownerId } } }) },
+      rpc: async () => ({ data: workspaceId, error: null }),
+      from: (table: string) => {
+        const chain: any = {
+          select: () => chain,
+          eq: () => chain,
+          is: () => chain,
+          maybeSingle: async () => {
+            if (table === 'sync_operations') return { data: null, error: null };
+            if (table === 'sync_tombstones') return { data: null, error: null };
+            return { data: existingMap[table] ?? null, error: null };
+          },
+          upsert: async (value: any) => {
+            upsertCalls[table] = value;
+            return { data: value, error: null };
+          },
+        };
+        return chain;
+      },
+    };
+
+    // Test grade reconciliation
+    const gradeEntry: SyncOutboxEntry = {
+      id: 'entry-grade',
+      ownerId,
+      revision: 2,
+      updatedAt: '2026-09-20T20:00:00.000Z',
+      operations: [{
+        id: 'grade:local-grade-id',
+        entity: 'grade',
+        action: 'upsert',
+        recordId: 'local-grade-id',
+        payload: {
+          id: 'local-grade-id',
+          studentId: 'st-1',
+          classId: 'c-1',
+          trimester: 1,
+          exam: 18,
+        },
+      }],
+      createdAt: '2026-09-20T20:00:00.000Z',
+    };
+    await applySyncOutboxEntry(mockClient as never, ownerId, gradeEntry, deviceId);
+    expect(upsertCalls.grades.id).toBe('cloud-grade-uuid');
+
+    // Test session reconciliation
+    const sessionEntry: SyncOutboxEntry = {
+      id: 'entry-session',
+      ownerId,
+      revision: 2,
+      updatedAt: '2026-09-20T20:00:00.000Z',
+      operations: [{
+        id: 'session:local-session-id',
+        entity: 'session',
+        action: 'upsert',
+        recordId: 'local-session-id',
+        payload: {
+          id: 'local-session-id',
+          classId: 'c-1',
+          date: '2026-09-22',
+          startTime: '08:00',
+          endTime: '09:00',
+        },
+      }],
+      createdAt: '2026-09-20T20:00:00.000Z',
+    };
+    await applySyncOutboxEntry(mockClient as never, ownerId, sessionEntry, deviceId);
+    expect(upsertCalls.sessions.id).toBe('cloud-session-uuid');
+
+    // Test attendance reconciliation
+    const attendanceEntry: SyncOutboxEntry = {
+      id: 'entry-attendance',
+      ownerId,
+      revision: 2,
+      updatedAt: '2026-09-20T20:00:00.000Z',
+      operations: [{
+        id: 'attendance:local-att-id',
+        entity: 'attendance',
+        action: 'upsert',
+        recordId: 'local-att-id',
+        payload: {
+          id: 'local-att-id',
+          sessionId: 'sess-1',
+          studentId: 'st-1',
+          status: 'ABSENT',
+        },
+      }],
+      createdAt: '2026-09-20T20:00:00.000Z',
+    };
+    await applySyncOutboxEntry(mockClient as never, ownerId, attendanceEntry, deviceId);
+    expect(upsertCalls.attendance.id).toBe('cloud-attendance-uuid');
+
+    // Test timetable reconciliation
+    const timetableEntry: SyncOutboxEntry = {
+      id: 'entry-timetable',
+      ownerId,
+      revision: 2,
+      updatedAt: '2026-09-20T20:00:00.000Z',
+      operations: [{
+        id: 'timetable:local-tt-id',
+        entity: 'timetable',
+        action: 'upsert',
+        recordId: 'local-tt-id',
+        payload: {
+          id: 'local-tt-id',
+          classId: 'c-1',
+          dayOfWeek: 0,
+          startTime: '08:00',
+          endTime: '09:00',
+        },
+      }],
+      createdAt: '2026-09-20T20:00:00.000Z',
+    };
+    await applySyncOutboxEntry(mockClient as never, ownerId, timetableEntry, deviceId);
+    expect(upsertCalls.timetable_slots.id).toBe('cloud-timetable-uuid');
+
+    // Test lessonProgress reconciliation
+    const progressEntry: SyncOutboxEntry = {
+      id: 'entry-progress',
+      ownerId,
+      revision: 2,
+      updatedAt: '2026-09-20T20:00:00.000Z',
+      operations: [{
+        id: 'lessonProgress:local-lp-id',
+        entity: 'lessonProgress',
+        action: 'upsert',
+        recordId: 'local-lp-id',
+        payload: {
+          id: 'local-lp-id',
+          classId: 'c-1',
+          unitId: 'unit-1',
+          status: 'COMPLETED',
+        },
+      }],
+      createdAt: '2026-09-20T20:00:00.000Z',
+    };
+    await applySyncOutboxEntry(mockClient as never, ownerId, progressEntry, deviceId);
+    expect(upsertCalls.lesson_progress.id).toBe('cloud-progress-uuid');
+
+    // Test dashboardTask reconciliation
+    const taskEntry: SyncOutboxEntry = {
+      id: 'entry-task',
+      ownerId,
+      revision: 2,
+      updatedAt: '2026-09-20T20:00:00.000Z',
+      operations: [{
+        id: 'dashboardTask:local-task-id',
+        entity: 'dashboardTask',
+        action: 'upsert',
+        recordId: 'local-task-id',
+        payload: {
+          id: 'local-task-id',
+          text: 'تصحيح الفروض',
+          done: false,
+        },
+      }],
+      createdAt: '2026-09-20T20:00:00.000Z',
+    };
+    await applySyncOutboxEntry(mockClient as never, ownerId, taskEntry, deviceId);
+    expect(upsertCalls.dashboard_tasks.id).toBe('cloud-task-uuid');
+  });
 });
 
 describe('delta sync engine', () => {
@@ -843,5 +1018,44 @@ describe('delta sync engine', () => {
 
     const deletedIds = getDeletedRecordIds(previous, next);
     expect(deletedIds).toEqual(['student:st1']);
+  });
+
+  it('saveAppStateCache protects existing non-empty cache from empty roster overwrite', async () => {
+    const originalWindow = globalThis.window;
+    globalThis.window = {} as any;
+
+    try {
+      const populatedState = {
+        ...getEmptyState(),
+        classes: [{ id: 'c1', name: 'قسم 1', level: '1AS_SCIENCE' as const, stream: '' }],
+        students: [{ id: 'st1', classId: 'c1', fullName: 'تلميذ 1', numberInList: 1 }],
+      };
+
+      await saveAppStateCache(populatedState);
+      const cachedAfterPopulated = await loadAppStateCache();
+      expect(cachedAfterPopulated?.classes).toHaveLength(1);
+      expect(cachedAfterPopulated?.students).toHaveLength(1);
+
+      // Attempt to overwrite with empty roster without allowEmptyRoster flag
+      const emptyRosterState = {
+        ...getEmptyState(),
+        classes: [],
+        students: [],
+      };
+
+      await saveAppStateCache(emptyRosterState);
+      const cachedAfterAccidentalOverwrite = await loadAppStateCache();
+      // Cache must retain original non-empty roster!
+      expect(cachedAfterAccidentalOverwrite?.classes).toHaveLength(1);
+      expect(cachedAfterAccidentalOverwrite?.students).toHaveLength(1);
+
+      // When allowEmptyRoster is true (e.g. clearRosterData or resetWorkspace), overwrite is permitted
+      await saveAppStateCache(emptyRosterState, { allowEmptyRoster: true });
+      const cachedAfterExplicitReset = await loadAppStateCache();
+      expect(cachedAfterExplicitReset?.classes).toHaveLength(0);
+      expect(cachedAfterExplicitReset?.students).toHaveLength(0);
+    } finally {
+      globalThis.window = originalWindow;
+    }
   });
 });

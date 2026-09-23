@@ -58,7 +58,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
   onNavigate,
   initialSubTab = 'classes',
 }) => {
-  const { state, updateState: onUpdateState, updateStateAndWait } = useAppState();
+  const { state, updateState: onUpdateState, updateStateAndWait, commitRosterImport } = useAppState();
   const [activeSubTab, setActiveSubTab] = useState<'classes' | 'timetable' | 'students'>(initialSubTab);
   const [classSearch, setClassSearch] = useState('');
   const [classLevelFilter, setClassLevelFilter] = useState<GradeLevel | 'ALL'>('ALL');
@@ -480,150 +480,151 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     const importedClasses: RosterImportClass[] = [];
     const importedStudents: RosterImportStudent[] = [];
 
-    onUpdateState(prev => {
-        const updatedClasses = prev.classes.map(classRoom => ({ ...classRoom }));
-        let updatedStudents = prev.students.map(student => ({ ...student }));
-        let totalNewStudentsAdded = 0;
-        let totalExistingStudentsRetained = 0;
-        const processedClassIds: string[] = [];
+    const updatedClasses = state.classes.map(classRoom => ({ ...classRoom }));
+    let updatedStudents = state.students.map(student => ({ ...student }));
+    let totalNewStudentsAdded = 0;
+    let totalExistingStudentsRetained = 0;
+    const processedClassIds: string[] = [];
 
-        const classColors = [
-          '#0d9488', '#0284c7', '#d97706', '#7c3aed', '#e11d48',
-          '#059669', '#4f46e5', '#ca8a04', '#2563eb', '#db2777' ];
+    const classColors = [
+      '#0d9488', '#0284c7', '#d97706', '#7c3aed', '#e11d48',
+      '#059669', '#4f46e5', '#ca8a04', '#2563eb', '#db2777'
+    ];
 
-        // Loop through all parsed classes from all sheets in the Excel file
-        parsedData.classes.forEach((pClass, idx) => {
-          // Check if class already exists by exact name or matching normalized name
-          let classObj = updatedClasses.find(
-            c => !processedClassIds.includes(c.id) && isSameClass(c.name, pClass.className)
-          );
+    // Loop through all parsed classes from all sheets in the Excel file
+    parsedData.classes.forEach((pClass, idx) => {
+      // Check if class already exists by exact name or matching normalized name
+      let classObj = updatedClasses.find(
+        c => !processedClassIds.includes(c.id) && isSameClass(c.name, pClass.className)
+      );
 
-          // If not found, check if there's an unused placeholder class (e.g., "قسم جديد" with 0 students)
-          if (!classObj) {
-            const placeholderIdx = updatedClasses.findIndex(
-              c => (c.name.includes('قسم جديد') || c.name.trim() === '') &&
-                   !updatedStudents.some(s => s.classId === c.id) &&
-                   !processedClassIds.includes(c.id)
-            );
-            if (placeholderIdx !== -1) {
-              classObj = updatedClasses[placeholderIdx];
-              classObj.name = pClass.className;
-              classObj.level = pClass.level;
-              classObj.stream = pClass.stream;
-              classObj.color = classObj.color || classColors[(updatedClasses.length + idx) % classColors.length];
-            }
-          }
-
-          // If still not found, create a brand new class
-          if (!classObj) {
-            const newClassId = uuidv4();
-            classObj = {
-              id: newClassId,
-              name: pClass.className,
-              level: pClass.level,
-              stream: pClass.stream,
-              color: classColors[(updatedClasses.length + idx) % classColors.length],
-            };
-            updatedClasses.push(classObj);
-          } else {
-            // Update level and stream based on exact parsing
-            classObj.level = pClass.level;
-            classObj.stream = pClass.stream;
-          }
-
-          processedClassIds.push(classObj.id);
-          importedClasses.push({
-            id: classObj.id,
-            name: classObj.name,
-            level: classObj.level,
-            stream: classObj.stream,
-          });
-
-          // Process students for this specific class
-          const existingStudentsInClass = updatedStudents.filter(s => s.classId === classObj!.id);
-          const studentLookupByReg = new Map<string, Student>();
-          const studentLookupByName = new Map<string, Student>();
-          const importedKeys = new Set<string>();
-
-          existingStudentsInClass.forEach(s => {
-            if (s.regNumber) studentLookupByReg.set(s.regNumber, s);
-            if (s.fullName) studentLookupByName.set(getStudentNameKey(s.fullName), s);
-          });
-
-          pClass.students.forEach(importedStudent => {
-            const importedKey = getStudentNameKey(importedStudent.fullName);
-            const duplicateKey = importedStudent.regNumber
-              ? `reg:${importedStudent.regNumber.trim()}`
-              : `name:${importedKey}`;
-            if (importedKeys.has(duplicateKey)) return;
-            importedKeys.add(duplicateKey);
-
-            const matchByReg = importedStudent.regNumber ? studentLookupByReg.get(importedStudent.regNumber) : null;
-            const matchByName =
-              studentLookupByName.get(importedKey) ||
-              existingStudentsInClass.find(s => isSameStudentName(s.fullName, importedStudent.fullName));
-
-            if (matchByReg || matchByName) {
-              totalExistingStudentsRetained++;
-              const targetExisting = matchByReg || matchByName;
-              if (targetExisting && importedStudent.regNumber && !targetExisting.regNumber) {
-                targetExisting.regNumber = importedStudent.regNumber;
-                targetExisting.registrationNumber = importedStudent.regNumber;
-              }
-            } else {
-              totalNewStudentsAdded++;
-              const newStudent: Student = {
-                ...importedStudent,
-                id: uuidv4(),
-                classId: classObj!.id, // STRICTLY ASSIGNED TO THIS CLASS ID!
-              };
-              updatedStudents.push(newStudent);
-              importedStudents.push(newStudent);
-            }
-            if (matchByReg || matchByName) {
-              const retained = matchByReg || matchByName;
-              if (retained) {
-                importedStudents.push({
-                  ...retained,
-                  classId: classObj.id,
-                });
-              }
-            }
-          });
-        });
-
-        // Set the active class to the first imported class
-        const firstClassId = processedClassIds[0] || prev.activeClassId || (updatedClasses.length > 0 ? updatedClasses[0].id : null);
-        targetClassIdToSelect = firstClassId;
-
-        // Summary notification
-        summaryNotificationMsg = `تم تجهيز ${parsedData.classes.length} أفواج تربوية للمزامنة: إضافة ${totalNewStudentsAdded} تلميذاً وتحديث ${totalExistingStudentsRetained} تلميذاً. سيظهر التأكيد بعد اكتمال المزامنة السحابية.`;
-
-        // Update profile if schoolName or academicYear were detected
-        const updatedProfile = { ...prev.profile };
-        if (parsedData.schoolName && (!prev.profile.schoolName || prev.profile.schoolName.includes('ثانوية'))) {
-          updatedProfile.schoolName = parsedData.schoolName;
+      // If not found, check if there's an unused placeholder class (e.g., "قسم جديد" with 0 students)
+      if (!classObj) {
+        const placeholderIdx = updatedClasses.findIndex(
+          c => (c.name.includes('قسم جديد') || c.name.trim() === '') &&
+               !updatedStudents.some(s => s.classId === c.id) &&
+               !processedClassIds.includes(c.id)
+        );
+        if (placeholderIdx !== -1) {
+          classObj = updatedClasses[placeholderIdx];
+          classObj.name = pClass.className;
+          classObj.level = pClass.level;
+          classObj.stream = pClass.stream;
+          classObj.color = classObj.color || classColors[(updatedClasses.length + idx) % classColors.length];
         }
-        if (parsedData.academicYear) {
-          updatedProfile.academicYear = parsedData.academicYear;
-        }
-        if (parsedData.stateName) {
-          updatedProfile.stateName = parsedData.stateName;
-        }
+      }
 
-        return {
-          ...prev,
-          classes: updatedClasses,
-          students: updatedStudents,
-          activeClassId: firstClassId,
-          profile: updatedProfile,
+      // If still not found, create a brand new class
+      if (!classObj) {
+        const newClassId = uuidv4();
+        classObj = {
+          id: newClassId,
+          name: pClass.className,
+          level: pClass.level,
+          stream: pClass.stream,
+          color: classColors[(updatedClasses.length + idx) % classColors.length],
         };
+        updatedClasses.push(classObj);
+      } else {
+        // Update level and stream based on exact parsing
+        classObj.level = pClass.level;
+        classObj.stream = pClass.stream;
+      }
+
+      processedClassIds.push(classObj.id);
+      importedClasses.push({
+        id: classObj.id,
+        name: classObj.name,
+        level: classObj.level,
+        stream: classObj.stream,
+      });
+
+      // Process students for this specific class
+      const existingStudentsInClass = updatedStudents.filter(s => s.classId === classObj!.id);
+      const studentLookupByReg = new Map<string, Student>();
+      const studentLookupByName = new Map<string, Student>();
+      const importedKeys = new Set<string>();
+
+      existingStudentsInClass.forEach(s => {
+        if (s.regNumber) studentLookupByReg.set(s.regNumber, s);
+        if (s.fullName) studentLookupByName.set(getStudentNameKey(s.fullName), s);
+      });
+
+      pClass.students.forEach(importedStudent => {
+        const importedKey = getStudentNameKey(importedStudent.fullName);
+        const duplicateKey = importedStudent.regNumber
+          ? `reg:${importedStudent.regNumber.trim()}`
+          : `name:${importedKey}`;
+        if (importedKeys.has(duplicateKey)) return;
+        importedKeys.add(duplicateKey);
+
+        const matchByReg = importedStudent.regNumber ? studentLookupByReg.get(importedStudent.regNumber) : null;
+        const matchByName =
+          studentLookupByName.get(importedKey) ||
+          existingStudentsInClass.find(s => isSameStudentName(s.fullName, importedStudent.fullName));
+
+        if (matchByReg || matchByName) {
+          totalExistingStudentsRetained++;
+          const targetExisting = matchByReg || matchByName;
+          if (targetExisting && importedStudent.regNumber && !targetExisting.regNumber) {
+            targetExisting.regNumber = importedStudent.regNumber;
+            targetExisting.registrationNumber = importedStudent.regNumber;
+          }
+        } else {
+          totalNewStudentsAdded++;
+          const newStudent: Student = {
+            ...importedStudent,
+            id: uuidv4(),
+            classId: classObj!.id, // STRICTLY ASSIGNED TO THIS CLASS ID!
+          };
+          updatedStudents.push(newStudent);
+          importedStudents.push(newStudent);
+        }
+        if (matchByReg || matchByName) {
+          const retained = matchByReg || matchByName;
+          if (retained) {
+            importedStudents.push({
+              ...retained,
+              classId: classObj.id,
+            });
+          }
+        }
+      });
     });
+
+    // Set the active class to the first imported class
+    const firstClassId = processedClassIds[0] || state.activeClassId || (updatedClasses.length > 0 ? updatedClasses[0].id : null);
+    targetClassIdToSelect = firstClassId;
+
+    // Summary notification
+    summaryNotificationMsg = `تم تجهيز ${parsedData.classes.length} أفواج تربوية: إضافة ${totalNewStudentsAdded} تلميذاً وتحديث ${totalExistingStudentsRetained} تلميذاً.`;
+
+    // Update profile if schoolName or academicYear were detected
+    const updatedProfile = { ...state.profile };
+    if (parsedData.schoolName && (!state.profile.schoolName || state.profile.schoolName.includes('ثانوية'))) {
+      updatedProfile.schoolName = parsedData.schoolName;
+    }
+    if (parsedData.academicYear) {
+      updatedProfile.academicYear = parsedData.academicYear;
+    }
+    if (parsedData.stateName) {
+      updatedProfile.stateName = parsedData.stateName;
+    }
+
+    const nextState: AppState = {
+      ...state,
+      classes: updatedClasses,
+      students: updatedStudents,
+      activeClassId: firstClassId,
+      profile: updatedProfile,
+    };
+
     if (targetClassIdToSelect) setSelectedClassId(targetClassIdToSelect);
     if (summaryNotificationMsg) setImportNotification(summaryNotificationMsg);
     setPendingImport(null);
+
     try {
-      await commitRosterImportBatch(importedClasses, importedStudents);
+      await commitRosterImport(importedClasses, importedStudents, nextState);
       showToast('تم استيراد القوائم ومزامنتها سحابياً بنجاح.', 'success');
     } catch (error) {
       console.error('Atomic roster import sync failed:', error);
@@ -719,153 +720,152 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     const importedClasses: RosterImportClass[] = [];
     const importedStudents: RosterImportStudent[] = [];
 
-    onUpdateState(prev => {
-      const updatedClasses = prev.classes.map(classRoom => ({ ...classRoom }));
-      let updatedStudents = prev.students.map(student => ({ ...student }));
-      const processedClassIds: string[] = [];
+    const updatedClasses = state.classes.map(classRoom => ({ ...classRoom }));
+    let updatedStudents = state.students.map(student => ({ ...student }));
+    const processedClassIds: string[] = [];
 
-      const classColors = [
-        '#0d9488', '#0284c7', '#d97706', '#7c3aed', '#e11d48',
-        '#059669', '#4f46e5', '#ca8a04', '#2563eb', '#db2777' ];
+    const classColors = [
+      '#0d9488', '#0284c7', '#d97706', '#7c3aed', '#e11d48',
+      '#059669', '#4f46e5', '#ca8a04', '#2563eb', '#db2777'
+    ];
 
-      classesToImport.forEach((mClass, idx) => {
-        // Check if class already exists by exact name or normalized matching
-        let classObj = updatedClasses.find(c => !processedClassIds.includes(c.id) && isSameClass(c.name, mClass.className));
+    classesToImport.forEach((mClass, idx) => {
+      // Check if class already exists by exact name or normalized matching
+      let classObj = updatedClasses.find(c => !processedClassIds.includes(c.id) && isSameClass(c.name, mClass.className));
 
-        // Check if placeholder class exists
-        if (!classObj) {
-          const placeholderIdx = updatedClasses.findIndex(
-            c => (c.name.includes('قسم جديد') || c.name.trim() === '') &&
-                 !updatedStudents.some(s => s.classId === c.id) &&
-                 !processedClassIds.includes(c.id)
-          );
-          if (placeholderIdx !== -1) {
-            classObj = updatedClasses[placeholderIdx];
-            classObj.name = mClass.className;
-            classObj.level = mClass.level;
-            classObj.stream = mClass.stream;
-            if (mClass.roomNumber) classObj.roomNumber = mClass.roomNumber;
-            classObj.color = classObj.color || classColors[(updatedClasses.length + idx) % classColors.length];
-          }
-        }
-
-        // If not found, create new class
-        if (!classObj) {
-          const newClassId = uuidv4();
-          classObj = {
-            id: newClassId,
-            name: mClass.className,
-            level: mClass.level,
-            stream: mClass.stream,
-            roomNumber: mClass.roomNumber || 'القاعة 01',
-            color: classColors[(updatedClasses.length + idx) % classColors.length],
-          };
-          updatedClasses.push(classObj);
-        } else {
-          // Update room number if detected from Moumtaze
-          if (mClass.roomNumber) {
-            classObj.roomNumber = mClass.roomNumber;
-          }
+      // Check if placeholder class exists
+      if (!classObj) {
+        const placeholderIdx = updatedClasses.findIndex(
+          c => (c.name.includes('قسم جديد') || c.name.trim() === '') &&
+               !updatedStudents.some(s => s.classId === c.id) &&
+               !processedClassIds.includes(c.id)
+        );
+        if (placeholderIdx !== -1) {
+          classObj = updatedClasses[placeholderIdx];
+          classObj.name = mClass.className;
           classObj.level = mClass.level;
           classObj.stream = mClass.stream;
+          if (mClass.roomNumber) classObj.roomNumber = mClass.roomNumber;
+          classObj.color = classObj.color || classColors[(updatedClasses.length + idx) % classColors.length];
         }
+      }
 
-        processedClassIds.push(classObj.id);
-        importedClasses.push({
-          id: classObj.id,
-          name: classObj.name,
-          level: classObj.level,
-          stream: classObj.stream,
-        });
+      // If not found, create new class
+      if (!classObj) {
+        const newClassId = uuidv4();
+        classObj = {
+          id: newClassId,
+          name: mClass.className,
+          level: mClass.level,
+          stream: mClass.stream,
+          roomNumber: mClass.roomNumber || 'القاعة 01',
+          color: classColors[(updatedClasses.length + idx) % classColors.length],
+        };
+        updatedClasses.push(classObj);
+      } else {
+        // Update room number if detected from Moumtaze
+        if (mClass.roomNumber) {
+          classObj.roomNumber = mClass.roomNumber;
+        }
+        classObj.level = mClass.level;
+        classObj.stream = mClass.stream;
+      }
 
-        // Process students for this class
-        const existingInClass = updatedStudents.filter(s => s.classId === classObj!.id);
-        const importedKeys = new Set<string>();
-
-        mClass.students.forEach(mStudent => {
-          // Extra guard: ignore any summary rows like "مجموع الذكور والإناث", "ذكور", "إناث", "المجموع"
-          if (isSchoolSummaryOrFooterRow(mStudent.fullName)) {
-            return;
-          }
-
-          const importedKey = `name:${getStudentNameKey(mStudent.fullName)}`;
-          if (importedKeys.has(importedKey)) return;
-          importedKeys.add(importedKey);
-
-          const exactExisting = existingInClass.find(
-            s => getStudentNameKey(s.fullName) === getStudentNameKey(mStudent.fullName)
-          );
-          const fuzzyCandidates = existingInClass.filter(
-            s => isSameStudentName(s.fullName, mStudent.fullName)
-          );
-          const existing = exactExisting || (fuzzyCandidates.length === 1 ? fuzzyCandidates[0] : undefined);
-          if (existing) {
-            totalUpdated++;
-            existing.isRepeater = mStudent.isRepeater;
-            if (mStudent.birthDate && !existing.birthDate) existing.birthDate = mStudent.birthDate;
-            if (mStudent.gender) existing.gender = mStudent.gender;
-            if (mStudent.address && !existing.notes) existing.notes = `العنوان: ${mStudent.address}`;
-            importedStudents.push({ ...existing, classId: classObj.id });
-          } else {
-            totalAdded++;
-            const newStudent: Student = {
-              id: uuidv4(),
-              classId: classObj!.id,
-              numberInList: mStudent.numberInList,
-              fullName: mStudent.fullName,
-              gender: mStudent.gender,
-              birthDate: mStudent.birthDate,
-              isRepeater: mStudent.isRepeater,
-              notes: mStudent.address ? `العنوان: ${mStudent.address}` : undefined,
-            };
-            updatedStudents.push(newStudent);
-            importedStudents.push(newStudent);
-          }
-        });
-
-        // Ensure all students in this class are strictly numbered 1..N starting from 1
-        const allInThisClass = updatedStudents
-          .filter(s => s.classId === classObj!.id)
-          .sort((a, b) => (a.numberInList || 0) - (b.numberInList || 0));
-
-        allInThisClass.forEach((st, sIdx) => {
-          st.numberInList = sIdx + 1;
-        });
+      processedClassIds.push(classObj.id);
+      importedClasses.push({
+        id: classObj.id,
+        name: classObj.name,
+        level: classObj.level,
+        stream: classObj.stream,
       });
 
-      const firstClassId = processedClassIds[0] || prev.activeClassId || (updatedClasses.length > 0 ? updatedClasses[0].id : null);
-      targetClassIdToSelect = firstClassId;
+      // Process students for this class
+      const existingInClass = updatedStudents.filter(s => s.classId === classObj!.id);
+      const importedKeys = new Set<string>();
 
-      const updatedProfile = { ...prev.profile };
-      if (moumtazeData.schoolName && (!prev.profile.schoolName || prev.profile.schoolName.includes('ثانوية'))) {
-        updatedProfile.schoolName = moumtazeData.schoolName;
-      }
-      if (moumtazeData.academicYear) {
-        updatedProfile.academicYear = moumtazeData.academicYear;
-      }
-      if (moumtazeData.stateName) {
-        updatedProfile.stateName = moumtazeData.stateName;
-      }
+      mClass.students.forEach(mStudent => {
+        // Extra guard: ignore any summary rows like "مجموع الذكور والإناث", "ذكور", "إناث", "المجموع"
+        if (isSchoolSummaryOrFooterRow(mStudent.fullName)) {
+          return;
+        }
 
-      return {
-        ...prev,
-        classes: updatedClasses,
-        students: updatedStudents,
-        activeClassId: firstClassId,
-        profile: updatedProfile,
-      };
+        const importedKey = `name:${getStudentNameKey(mStudent.fullName)}`;
+        if (importedKeys.has(importedKey)) return;
+        importedKeys.add(importedKey);
+
+        const exactExisting = existingInClass.find(
+          s => getStudentNameKey(s.fullName) === getStudentNameKey(mStudent.fullName)
+        );
+        const fuzzyCandidates = existingInClass.filter(
+          s => isSameStudentName(s.fullName, mStudent.fullName)
+        );
+        const existing = exactExisting || (fuzzyCandidates.length === 1 ? fuzzyCandidates[0] : undefined);
+        if (existing) {
+          totalUpdated++;
+          existing.isRepeater = mStudent.isRepeater;
+          if (mStudent.birthDate && !existing.birthDate) existing.birthDate = mStudent.birthDate;
+          if (mStudent.gender) existing.gender = mStudent.gender;
+          if (mStudent.address && !existing.notes) existing.notes = `العنوان: ${mStudent.address}`;
+          importedStudents.push({ ...existing, classId: classObj.id });
+        } else {
+          totalAdded++;
+          const newStudent: Student = {
+            id: uuidv4(),
+            classId: classObj!.id,
+            numberInList: mStudent.numberInList,
+            fullName: mStudent.fullName,
+            gender: mStudent.gender,
+            birthDate: mStudent.birthDate,
+            isRepeater: mStudent.isRepeater,
+            notes: mStudent.address ? `العنوان: ${mStudent.address}` : undefined,
+          };
+          updatedStudents.push(newStudent);
+          importedStudents.push(newStudent);
+        }
+      });
+
+      // Ensure all students in this class are strictly numbered 1..N starting from 1
+      const allInThisClass = updatedStudents
+        .filter(s => s.classId === classObj!.id)
+        .sort((a, b) => (a.numberInList || 0) - (b.numberInList || 0));
+
+      allInThisClass.forEach((st, sIdx) => {
+        st.numberInList = sIdx + 1;
+      });
     });
+
+    const firstClassId = processedClassIds[0] || state.activeClassId || (updatedClasses.length > 0 ? updatedClasses[0].id : null);
+    targetClassIdToSelect = firstClassId;
+
+    const updatedProfile = { ...state.profile };
+    if (moumtazeData.schoolName && (!state.profile.schoolName || state.profile.schoolName.includes('ثانوية'))) {
+      updatedProfile.schoolName = moumtazeData.schoolName;
+    }
+    if (moumtazeData.academicYear) {
+      updatedProfile.academicYear = moumtazeData.academicYear;
+    }
+    if (moumtazeData.stateName) {
+      updatedProfile.stateName = moumtazeData.stateName;
+    }
+
+    const nextState: AppState = {
+      ...state,
+      classes: updatedClasses,
+      students: updatedStudents,
+      activeClassId: firstClassId,
+      profile: updatedProfile,
+    };
 
     if (targetClassIdToSelect) {
       setSelectedClassId(targetClassIdToSelect);
     }
     setImportNotification(
-      `تم تجهيز ${classesToImport.length} أفواج للمزامنة من برنامج الممتاز (${totalAdded} تلميذاً جديداً، و ${totalUpdated} تلميذ تم تحديث بياناتهم وحفظ القاعات). سيظهر التأكيد بعد اكتمال المزامنة السحابية.`
+      `تم تجهيز ${classesToImport.length} أفواج للمزامنة من برنامج الممتاز (${totalAdded} تلميذاً جديداً، و ${totalUpdated} تلميذ تم تحديث بياناتهم وحفظ القاعات).`
     );
     setIsMoumtazeModalOpen(false);
     setMoumtazeData(null);
     try {
-      await commitRosterImportBatch(importedClasses, importedStudents);
+      await commitRosterImport(importedClasses, importedStudents, nextState);
       showToast('تم استيراد قوائم الممتاز ومزامنتها سحابياً بنجاح.', 'success');
     } catch (error) {
       console.error('Atomic Moumtaze roster sync failed:', error);

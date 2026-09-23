@@ -45,7 +45,7 @@ async function workspaceId(client: AnyClient, ownerId: string): Promise<string> 
   if (existing.data?.id && isUuid(existing.data.id)) {
     return existing.data.id;
   }
-  const created = await client.from('workspaces').insert({ owner_id: ownerId }).select('id').single();
+  const created = await client.from('workspaces').upsert({ owner_id: ownerId }, { onConflict: 'owner_id' }).select('id').single();
   if (created.data?.id && isUuid(created.data.id)) {
     return created.data.id;
   }
@@ -375,11 +375,11 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
         gender: profile.gender === 'M' || profile.gender === 'F' ? profile.gender : undefined,
       } : localState.profile,
       classes,
-      students: students.filter((s: Student) => classes.some((c: ClassRoom) => c.id === s.classId)),
-      grades: grades.filter((g: StudentGrade) => classes.some((c: ClassRoom) => c.id === g.classId)),
-      sessions: sessions.filter((s: SessionRecord) => classes.some((c: ClassRoom) => c.id === s.classId)),
-      timetable: timetable.filter((t: TimetableSlot) => classes.some((c: ClassRoom) => c.id === t.classId)),
-      lessonProgress: lessonProgress.filter((p: ClassLessonProgress) => classes.some((c: ClassRoom) => c.id === p.classId)),
+      students: students.filter((s: Student) => classes.some((c: ClassRoom) => c.id === s.classId || getCloudRecordId(userId, 'class', c.id) === s.classId || c.id === getCloudRecordId(userId, 'class', s.classId))),
+      grades: grades.filter((g: StudentGrade) => classes.some((c: ClassRoom) => c.id === g.classId || getCloudRecordId(userId, 'class', c.id) === g.classId || c.id === getCloudRecordId(userId, 'class', g.classId))),
+      sessions: sessions.filter((s: SessionRecord) => classes.some((c: ClassRoom) => c.id === s.classId || getCloudRecordId(userId, 'class', c.id) === s.classId || c.id === getCloudRecordId(userId, 'class', s.classId))),
+      timetable: timetable.filter((t: TimetableSlot) => classes.some((c: ClassRoom) => c.id === t.classId || getCloudRecordId(userId, 'class', c.id) === t.classId || c.id === getCloudRecordId(userId, 'class', t.classId))),
+      lessonProgress: lessonProgress.filter((p: ClassLessonProgress) => classes.some((c: ClassRoom) => c.id === p.classId || getCloudRecordId(userId, 'class', c.id) === p.classId || c.id === getCloudRecordId(userId, 'class', p.classId))),
       customUnits, lessonPlans, dashboardTasks,
       unitPdfFiles: {
         ...(localState.unitPdfFiles || {}),
@@ -392,7 +392,7 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
 
 async function applyOperationOnce(client: AnyClient, ownerId: string, workspace: string, operation: SyncOperation, metadata: SyncMetadata): Promise<void> {
   const table = tables[operation.entity];
-  const recordId = getCloudRecordId(ownerId, operation.entity, operation.recordId);
+  let recordId = getCloudRecordId(ownerId, operation.entity, operation.recordId);
   const conflictIfStale = async (existing: any): Promise<void> => {
     const remoteRevision = Number(existing?.sync_revision ?? existing?.revision ?? 0);
     const remoteDevice = existing?.sync_device_id || existing?.updated_by || null;
@@ -461,10 +461,111 @@ async function applyOperationOnce(client: AnyClient, ownerId: string, workspace:
     }, { onConflict: 'workspace_id' });
     if (result.error) throw result.error; return;
   }
-  const existing = await client.from(table).select('revision,sync_revision,updated_by,sync_device_id').eq('id', recordId).eq('owner_id', ownerId).eq('workspace_id', workspace).maybeSingle();
-  if (existing.error) throw existing.error;
-  await conflictIfStale(existing.data);
   if (operation.action === 'upsert') {
+    const row = toRow(operation.entity, operation.payload, ownerId, workspace, metadata);
+
+    if (operation.entity === 'class' && (operation.payload as any)?.name) {
+      const existingByName = await client.from('classes')
+        .select('id')
+        .eq('workspace_id', workspace)
+        .eq('owner_id', ownerId)
+        .eq('name', String((operation.payload as any).name).trim())
+        .maybeSingle();
+      if (existingByName.data?.id && existingByName.data.id !== recordId) {
+        recordId = existingByName.data.id;
+        row.id = existingByName.data.id;
+      }
+    } else if (operation.entity === 'student' && row.class_id && (operation.payload as any)?.numberInList) {
+      const existingByNumber = await client.from('students')
+        .select('id')
+        .eq('workspace_id', workspace)
+        .eq('owner_id', ownerId)
+        .eq('class_id', row.class_id)
+        .eq('number_in_list', Number((operation.payload as any).numberInList))
+        .maybeSingle();
+      if (existingByNumber.data?.id && existingByNumber.data.id !== recordId) {
+        recordId = existingByNumber.data.id;
+        row.id = existingByNumber.data.id;
+      }
+    } else if (operation.entity === 'grade' && row.student_id && row.trimester) {
+      const existingGrade = await client.from('grades')
+        .select('id')
+        .eq('workspace_id', workspace)
+        .eq('owner_id', ownerId)
+        .eq('student_id', row.student_id)
+        .eq('trimester', row.trimester)
+        .maybeSingle();
+      if (existingGrade.data?.id && existingGrade.data.id !== recordId) {
+        recordId = existingGrade.data.id;
+        row.id = existingGrade.data.id;
+      }
+    } else if (operation.entity === 'session' && row.class_id && row.session_date && row.start_time) {
+      const existingSession = await client.from('sessions')
+        .select('id')
+        .eq('workspace_id', workspace)
+        .eq('owner_id', ownerId)
+        .eq('class_id', row.class_id)
+        .eq('session_date', row.session_date)
+        .eq('start_time', row.start_time)
+        .maybeSingle();
+      if (existingSession.data?.id && existingSession.data.id !== recordId) {
+        recordId = existingSession.data.id;
+        row.id = existingSession.data.id;
+      }
+    } else if (operation.entity === 'attendance' && row.session_id && row.student_id) {
+      const existingAttendance = await client.from('attendance')
+        .select('id')
+        .eq('workspace_id', workspace)
+        .eq('owner_id', ownerId)
+        .eq('session_id', row.session_id)
+        .eq('student_id', row.student_id)
+        .maybeSingle();
+      if (existingAttendance.data?.id && existingAttendance.data.id !== recordId) {
+        recordId = existingAttendance.data.id;
+        row.id = existingAttendance.data.id;
+      }
+    } else if (operation.entity === 'timetable' && row.class_id && row.weekday !== undefined && row.start_time) {
+      const existingSlot = await client.from('timetable_slots')
+        .select('id')
+        .eq('workspace_id', workspace)
+        .eq('owner_id', ownerId)
+        .eq('class_id', row.class_id)
+        .eq('weekday', row.weekday)
+        .eq('start_time', row.start_time)
+        .maybeSingle();
+      if (existingSlot.data?.id && existingSlot.data.id !== recordId) {
+        recordId = existingSlot.data.id;
+        row.id = existingSlot.data.id;
+      }
+    } else if (operation.entity === 'lessonProgress' && row.class_id && row.unit_key) {
+      const existingProgress = await client.from('lesson_progress')
+        .select('id')
+        .eq('workspace_id', workspace)
+        .eq('owner_id', ownerId)
+        .eq('class_id', row.class_id)
+        .eq('unit_key', row.unit_key)
+        .maybeSingle();
+      if (existingProgress.data?.id && existingProgress.data.id !== recordId) {
+        recordId = existingProgress.data.id;
+        row.id = existingProgress.data.id;
+      }
+    } else if (operation.entity === 'dashboardTask' && row.task_id) {
+      const existingTask = await client.from('dashboard_tasks')
+        .select('id')
+        .eq('workspace_id', workspace)
+        .eq('owner_id', ownerId)
+        .eq('task_id', row.task_id)
+        .maybeSingle();
+      if (existingTask.data?.id && existingTask.data.id !== recordId) {
+        recordId = existingTask.data.id;
+        row.id = existingTask.data.id;
+      }
+    }
+
+    const existing = await client.from(table).select('revision,sync_revision,updated_by,sync_device_id').eq('id', recordId).eq('owner_id', ownerId).eq('workspace_id', workspace).maybeSingle();
+    if (existing.error) throw existing.error;
+    await conflictIfStale(existing.data);
+
     const tombstone = await client.from('sync_tombstones')
       .select('revision,device_id')
       .eq('workspace_id', workspace)
@@ -476,7 +577,7 @@ async function applyOperationOnce(client: AnyClient, ownerId: string, workspace:
     if (tombstone.data && Number(tombstone.data.revision) >= metadata.revision && tombstone.data.device_id !== metadata.deviceId) {
       throw new SyncConflictError(operation.entity, operation.recordId, Number(tombstone.data.revision), metadata.revision);
     }
-    const row = toRow(operation.entity, operation.payload, ownerId, workspace, metadata);
+
     const result = await client.from(table).upsert(row, { onConflict: 'id' });
     if (result.error) throw result.error;
     if (tombstone.data) {
@@ -489,6 +590,9 @@ async function applyOperationOnce(client: AnyClient, ownerId: string, workspace:
     }
     return;
   }
+  const existing = await client.from(table).select('revision,sync_revision,updated_by,sync_device_id').eq('id', recordId).eq('owner_id', ownerId).eq('workspace_id', workspace).maybeSingle();
+  if (existing.error) throw existing.error;
+  await conflictIfStale(existing.data);
   const tombstone = await client.from('sync_tombstones').upsert({
     workspace_id: workspace,
     owner_id: ownerId,
