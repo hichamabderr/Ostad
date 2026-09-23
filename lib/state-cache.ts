@@ -67,12 +67,12 @@ export async function loadAppStateCache(): Promise<AppState | null> {
 export async function saveAppStateCache(state: AppState, options?: { allowEmptyRoster?: boolean }): Promise<void> {
   if (typeof window === 'undefined') return;
 
-  // Safeguard: do not allow an empty state to wipe out an existing non-empty cache unless explicitly allowed
-  if (!options?.allowEmptyRoster && state.classes.length === 0 && state.students.length === 0) {
+  // Safeguard: Never overwrite a real user workspace cache with demo/mock state
+  if (isDemoState(state)) {
     try {
       const existing = await get<AppState>(STATE_CACHE_KEY);
       if (existing && !isDemoState(existing) && (existing.classes.length > 0 || existing.students.length > 0)) {
-        console.warn('Blocked attempt to overwrite non-empty IndexedDB cache with empty roster state.');
+        console.warn('Blocked attempt to overwrite real IndexedDB workspace cache with demo state.');
         return;
       }
     } catch {

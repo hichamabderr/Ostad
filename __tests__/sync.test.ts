@@ -1020,40 +1020,82 @@ describe('delta sync engine', () => {
     expect(deletedIds).toEqual(['student:st1']);
   });
 
-  it('saveAppStateCache protects existing non-empty cache from empty roster overwrite', async () => {
+  it('saveAppStateCache allows saving legitimate empty roster and protects against demo state overwrite', async () => {
     const originalWindow = globalThis.window;
     globalThis.window = {} as any;
 
     try {
-      const populatedState = {
+      const populatedUserState = {
         ...getEmptyState(),
+        profile: { ...getEmptyState().profile, name: 'أستاذ أحمد' },
         classes: [{ id: 'c1', name: 'قسم 1', level: '1AS_SCIENCE' as const, stream: '' }],
         students: [{ id: 'st1', classId: 'c1', fullName: 'تلميذ 1', numberInList: 1 }],
       };
 
-      await saveAppStateCache(populatedState);
+      await saveAppStateCache(populatedUserState);
       const cachedAfterPopulated = await loadAppStateCache();
       expect(cachedAfterPopulated?.classes).toHaveLength(1);
       expect(cachedAfterPopulated?.students).toHaveLength(1);
 
-      // Attempt to overwrite with empty roster without allowEmptyRoster flag
-      const emptyRosterState = {
+      // Attempt to overwrite real user data with demo state
+      const demoState = {
         ...getEmptyState(),
+        classes: [{ id: 'cls-demo', name: 'قسم تجريبي', level: '1AS_SCIENCE' as const, stream: '' }],
+        students: [{ id: 'std-demo', classId: 'cls-demo', fullName: 'تلميذ تجريبي', numberInList: 1 }],
+      };
+      await saveAppStateCache(demoState);
+      const cachedAfterDemoAttempt = await loadAppStateCache();
+      // Cache must NOT be overwritten by demo state
+      expect(cachedAfterDemoAttempt?.classes[0]?.id).toBe('c1');
+
+      // User legitimately deletes all classes -> saving empty roster is permitted and updates cache
+      const emptyRosterState = {
+        ...populatedUserState,
         classes: [],
         students: [],
       };
 
       await saveAppStateCache(emptyRosterState);
-      const cachedAfterAccidentalOverwrite = await loadAppStateCache();
-      // Cache must retain original non-empty roster!
-      expect(cachedAfterAccidentalOverwrite?.classes).toHaveLength(1);
-      expect(cachedAfterAccidentalOverwrite?.students).toHaveLength(1);
+      const cachedAfterDelete = await loadAppStateCache();
+      expect(cachedAfterDelete?.classes).toHaveLength(0);
+      expect(cachedAfterDelete?.students).toHaveLength(0);
+    } finally {
+      globalThis.window = originalWindow;
+    }
+  });
 
-      // When allowEmptyRoster is true (e.g. clearRosterData or resetWorkspace), overwrite is permitted
-      await saveAppStateCache(emptyRosterState, { allowEmptyRoster: true });
-      const cachedAfterExplicitReset = await loadAppStateCache();
-      expect(cachedAfterExplicitReset?.classes).toHaveLength(0);
-      expect(cachedAfterExplicitReset?.students).toHaveLength(0);
+  it('regression §3.1: reload after deleting last class retains 0 classes in cache without resurrection', async () => {
+    const originalWindow = globalThis.window;
+    globalThis.window = {} as any;
+
+    try {
+      // 1. User has 1 class and 3 students
+      const userState = {
+        ...getEmptyState(),
+        classes: [{ id: 'c1', name: '3 ع ت 1', level: '3AS' as const, stream: 'علوم تجريبية' }],
+        students: [
+          { id: 's1', classId: 'c1', fullName: 'تلميذ 1', numberInList: 1 },
+          { id: 's2', classId: 'c1', fullName: 'تلميذ 2', numberInList: 2 },
+          { id: 's3', classId: 'c1', fullName: 'تلميذ 3', numberInList: 3 },
+        ],
+      };
+      await saveAppStateCache(userState);
+      const cached = await loadAppStateCache();
+      expect(cached?.classes).toHaveLength(1);
+      expect(cached?.students).toHaveLength(3);
+
+      // 2. User deletes the class -> state has 0 classes and 0 students
+      const deletedState = {
+        ...userState,
+        classes: [],
+        students: [],
+      };
+      await saveAppStateCache(deletedState);
+
+      // 3. Page reload reads cache -> 0 classes, class does NOT resurrect
+      const reloaded = await loadAppStateCache();
+      expect(reloaded?.classes).toHaveLength(0);
+      expect(reloaded?.students).toHaveLength(0);
     } finally {
       globalThis.window = originalWindow;
     }

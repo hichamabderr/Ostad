@@ -250,21 +250,21 @@ export const DEFAULT_CALENDAR_SETTINGS: AcademicCalendarSettings = {
 
 export const DEFAULT_PROFILE: TeacherProfile = {
   name: "أستاذ المادة",
-  firstNameAr: "أستاذ",
-  lastNameAr: "العلوم الإسلامية",
+  firstNameAr: "",
+  lastNameAr: "",
   firstNameEn: "",
   lastNameEn: "",
   email: "",
   title: "أستاذ التعليم الثانوي • العلوم الإسلامية",
-  schoolName: "ثانوية الدكتور بن زرجب",
-  stateName: "تلمسان",
+  schoolName: "",
+  stateName: "",
   academicYear: "2026/2027",
   hijriYear: "1448 هـ",
-  experienceYears: 7,
-  birthDate: "1988-06-15",
-  birthPlace: "الجزائر",
+  experienceYears: 0,
+  birthDate: "",
+  birthPlace: "",
   gender: "M",
-  familyStatus: "متزوج",
+  familyStatus: "",
 };
 
 export const INITIAL_CLASSES: ClassRoom[] = [

@@ -150,11 +150,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const isDemoData = isDemoState(state);
   const onboardingSteps = [
-    {
+    ...(isDemoData ? [{
       label: 'حذف بيانات البداية',
-      done: !isDemoData,
+      done: false,
       action: 'reset' as const,
-    },
+    }] : []),
     {
       label: 'إعداد الملف المهني',
       done: state.profile.name !== 'أستاذ المادة' && Boolean(state.profile.name.trim()),
@@ -240,13 +240,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <div className="h-full rounded-full bg-emerald-200 transition-all" style={{ width: `${(completedOnboardingSteps / onboardingSteps.length) * 100}%` }} />
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <button
-                  type="button"
-                  onClick={() => setResetWorkspaceRequested(true)}
-                  className="px-3 py-2 text-xs font-bold text-white/80 hover:text-white underline underline-offset-4 cursor-pointer"
-                >
-                  حذف بيانات البداية والبدء من جديد
-              </button>
+              {isDemoData && (
+                <button
+                    type="button"
+                    onClick={() => setResetWorkspaceRequested(true)}
+                    className="px-3 py-2 text-xs font-bold text-white/80 hover:text-white underline underline-offset-4 cursor-pointer"
+                  >
+                    حذف بيانات البداية والبدء من جديد
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => onUpdateState(prev => ({ ...prev, onboardingDismissed: true }))}

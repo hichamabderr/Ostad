@@ -26,7 +26,14 @@ export interface Database {
           created_at: string;
           updated_at: string;
         };
-        Insert: Omit<Database['public']['Tables']['memoranda_files']['Row'], 'id' | 'created_at' | 'updated_at' | 'sync_revision' | 'sync_updated_at' | 'sync_device_id'> & { id?: string; sync_revision?: number; sync_updated_at?: string; sync_device_id?: string | null };
+        Insert: Omit<Database['public']['Tables']['memoranda_files']['Row'], 'id' | 'workspace_id' | 'revision' | 'created_at' | 'updated_at' | 'sync_revision' | 'sync_updated_at' | 'sync_device_id'> & {
+          id?: string;
+          workspace_id?: string;
+          revision?: number;
+          sync_revision?: number;
+          sync_updated_at?: string;
+          sync_device_id?: string | null;
+        };
         Update: Partial<Database['public']['Tables']['memoranda_files']['Insert']>;
         Relationships: [];
       };
@@ -45,8 +52,9 @@ export interface Database {
           created_at: string;
           updated_at: string;
         };
-        Insert: Omit<Database['public']['Tables']['app_settings']['Row'], 'id' | 'created_at' | 'updated_at' | 'revision' | 'updated_by_device' | 'sync_revision' | 'sync_updated_at' | 'sync_device_id'> & {
+        Insert: Omit<Database['public']['Tables']['app_settings']['Row'], 'id' | 'workspace_id' | 'created_at' | 'updated_at' | 'revision' | 'updated_by_device' | 'sync_revision' | 'sync_updated_at' | 'sync_device_id'> & {
           id?: string;
+          workspace_id?: string;
           revision?: number;
           updated_by_device?: string | null;
           sync_revision?: number;
@@ -119,9 +127,23 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['profiles']['Row']>;
         Relationships: [];
       };
+      workspaces: SimpleTable<{
+        id: string;
+        owner_id: string;
+        name: string;
+        created_at: string;
+        updated_at: string;
+      }>;
+      sync_operations: SimpleTable<{
+        workspace_id: string;
+        owner_id: string;
+        operation_id: string;
+        applied_at: string;
+      }>;
       classes: {
         Row: {
           id: string;
+          workspace_id: string;
           owner_id: string;
           name: string;
           level: string | null;
@@ -129,14 +151,17 @@ export interface Database {
           weekly_hours: number;
           academic_year: string | null;
           notes: string | null;
+          revision: number;
           created_at: string;
           updated_at: string;
           sync_revision: number;
           sync_updated_at: string;
           sync_device_id: string | null;
         };
-        Insert: Omit<Database['public']['Tables']['classes']['Row'], 'id' | 'created_at' | 'updated_at' | 'sync_revision' | 'sync_updated_at' | 'sync_device_id'> & {
+        Insert: Omit<Database['public']['Tables']['classes']['Row'], 'id' | 'workspace_id' | 'revision' | 'created_at' | 'updated_at' | 'sync_revision' | 'sync_updated_at' | 'sync_device_id'> & {
           id?: string;
+          workspace_id?: string;
+          revision?: number;
           sync_revision?: number;
           sync_updated_at?: string;
           sync_device_id?: string | null;
@@ -147,6 +172,7 @@ export interface Database {
       students: {
         Row: {
           id: string;
+          workspace_id: string;
           owner_id: string;
           class_id: string;
           external_id: string | null;
@@ -160,14 +186,17 @@ export interface Database {
           gender: string | null;
           birth_date: string | null;
           notes: string | null;
+          revision: number;
           created_at: string;
           updated_at: string;
           sync_revision: number;
           sync_updated_at: string;
           sync_device_id: string | null;
         };
-        Insert: Omit<Database['public']['Tables']['students']['Row'], 'id' | 'normalized_name' | 'created_at' | 'updated_at' | 'sync_revision' | 'sync_updated_at' | 'sync_device_id'> & {
+        Insert: Omit<Database['public']['Tables']['students']['Row'], 'id' | 'workspace_id' | 'revision' | 'normalized_name' | 'created_at' | 'updated_at' | 'sync_revision' | 'sync_updated_at' | 'sync_device_id'> & {
           id?: string;
+          workspace_id?: string;
+          revision?: number;
           sync_revision?: number;
           sync_updated_at?: string;
           sync_device_id?: string | null;
@@ -178,6 +207,7 @@ export interface Database {
       grades: {
         Row: {
           id: string;
+          workspace_id: string;
           owner_id: string;
           student_id: string;
           class_id: string;
@@ -194,14 +224,17 @@ export interface Database {
           guidance: string | null;
           remarks: string | null;
           follow_up_notes: string | null;
+          revision: number;
           created_at: string;
           updated_at: string;
           sync_revision: number;
           sync_updated_at: string;
           sync_device_id: string | null;
         };
-        Insert: Omit<Database['public']['Tables']['grades']['Row'], 'id' | 'created_at' | 'updated_at' | 'sync_revision' | 'sync_updated_at' | 'sync_device_id'> & {
+        Insert: Omit<Database['public']['Tables']['grades']['Row'], 'id' | 'workspace_id' | 'revision' | 'created_at' | 'updated_at' | 'sync_revision' | 'sync_updated_at' | 'sync_device_id'> & {
           id?: string;
+          workspace_id?: string;
+          revision?: number;
           sync_revision?: number;
           sync_updated_at?: string;
           sync_device_id?: string | null;
@@ -209,7 +242,7 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['grades']['Insert']>;
         Relationships: [];
       };
-          sessions: SimpleTable<{ id: string; workspace_id: string; owner_id: string; class_id: string; session_date: string; start_time: string | null; end_time: string | null; trimester: number | null; topic: string | null; teacher_notes: string | null; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
+      sessions: SimpleTable<{ id: string; workspace_id: string; owner_id: string; class_id: string; session_date: string; start_time: string | null; end_time: string | null; trimester: number | null; topic: string | null; teacher_notes: string | null; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
       attendance: SimpleTable<{ id: string; workspace_id: string; owner_id: string; session_id: string; student_id: string; status: string; note: string | null; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
       session_behaviors: SimpleTable<{ id: string; workspace_id: string; owner_id: string; session_id: string; student_id: string; behavior: string; rating: number | null; note: string | null; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
       timetable_slots: SimpleTable<{ id: string; workspace_id: string; owner_id: string; class_id: string; weekday: number; start_time: string; end_time: string; room: string | null; notes: string | null; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
@@ -218,12 +251,41 @@ export interface Database {
       dashboard_tasks: SimpleTable<{ id: string; workspace_id: string; owner_id: string; task_id: string; text: string; done: boolean; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
       lesson_progress: SimpleTable<{ id: string; workspace_id: string; owner_id: string; class_id: string; unit_id: string | null; unit_key: string | null; status: string; completed_at: string | null; notes: string | null; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
       lesson_plans: SimpleTable<{ id: string; workspace_id: string; owner_id: string; class_id: string | null; unit_id: string | null; title: string; content: Json; lesson_date: string | null; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
-};
+    };
     Views: Record<string, never>;
     Functions: {
       reset_workspace: {
         Args: Record<string, never>;
         Returns: undefined;
+      };
+      claim_sync_operation: {
+        Args: {
+          p_workspace_id: string;
+          p_owner_id: string;
+          p_operation_id: string;
+        };
+        Returns: boolean;
+      };
+      import_roster_batch: {
+        Args: {
+          p_classes: Json;
+          p_students: Json;
+        };
+        Returns: void;
+      };
+      clear_roster_data: {
+        Args: Record<string, never>;
+        Returns: void;
+      };
+      upsert_grade: {
+        Args: {
+          p_student_id: string;
+          p_class_id: string;
+          p_trimester: number;
+          p_values: Json;
+          p_revision?: number | null;
+        };
+        Returns: Database['public']['Tables']['grades']['Row'];
       };
     };
     Enums: Record<string, never>;

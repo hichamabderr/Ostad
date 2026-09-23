@@ -453,7 +453,7 @@ ${sessionNotes}
     const html = `
       <div dir="rtl" style="text-align: center; margin-bottom: 10px;">
         <div style="color: var(--primary);">دفتر النصوص وسجل الحصص اليومي — مادة العلوم الإسلامية</div>
-        <p><strong>المؤسسة:</strong> ${state.profile?.schoolName || 'ثانوية التعليم الثانوي'} | <strong>الأستاذ(ة):</strong> ${state.profile?.name || 'أستاذ المادة'} | <strong>السنة الدراسية:</strong> ${state.profile?.academicYear || '2025/2026'}</p>
+        <p><strong>المؤسسة:</strong> ${state.profile?.schoolName || 'ثانوية التعليم الثانوي'} | <strong>الأستاذ(ة):</strong> ${state.profile?.name || 'أستاذ المادة'} | <strong>السنة الدراسية:</strong> ${state.profile?.academicYear || '2026/2027'}</p>
         <p><strong>الفوج التربوي:</strong> ${activeClass?.name || 'القسم'} (${activeClass?.stream || ''}) | <strong>عدد الحصص الموثقة:</strong> ${classPastSessions.length}</p>
       </div>
       <h3 style="margin: 8px 0 4px;">جدول الحصص المنجزة زمنياً:</h3>
@@ -496,7 +496,7 @@ ${sessionNotes}
     const html = `
       <div dir="rtl" style="text-align: center; margin-bottom: 10px;">
         <div style="color: #b45309;">دفتر الملاحظات للأستاذ</div>
-        <p><strong>الأستاذ(ة):</strong> ${state.profile?.name || 'أستاذ المادة'} | <strong>المؤسسة:</strong> ${state.profile?.schoolName || 'ثانوية التعليم الثانوي'} | <strong>السنة الدراسية:</strong> ${state.profile?.academicYear || '2025/2026'}</p>
+        <p><strong>الأستاذ(ة):</strong> ${state.profile?.name || 'أستاذ المادة'} | <strong>المؤسسة:</strong> ${state.profile?.schoolName || 'ثانوية التعليم الثانوي'} | <strong>السنة الدراسية:</strong> ${state.profile?.academicYear || '2026/2027'}</p>
         <p><strong>القسم:</strong> ${activeClass?.name || 'جميع الأقسام'} | <strong>عدد الملاحظات:</strong> ${noteSessions.length}</p>
       </div>
       ${noteRows.length > 0 ? noteRows : '<p style="text-align:center;">لا توجد ملاحظات مسجلة حتى الآن.</p>'}

@@ -1,8 +1,8 @@
 export interface TeacherProfile {
   name: string; // الاسم الكامل
   title: string; // e.g. "أستاذ التعليم الثانوي للعلوم الإسلامية"
-  schoolName: string; // e.g. "ثانوية الدكتور بن زرجب"
-  stateName: string; // ولاية e.g. "الجزائر وسط" / "تلمسان" / "وهران" / "النعامة"
+  schoolName: string; // e.g. "ثانوية الشهيد زيغود يوسف"
+  stateName: string; // ولاية e.g. "الجزائر وسط" / "وهران" / "سطيف" / "قسنطينة"
   academicYear: string; // e.g. "2026/2027"
   hijriYear?: string; // e.g. "1448 هـ"
   // Detailed Civil & Professional Profile (Sanad Al-Oustadh format)

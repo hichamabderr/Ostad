@@ -112,8 +112,8 @@ export const SidebarSanad: React.FC<SidebarSanadProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  const teacherName = state.profile.name || "أستاذ محمد";
-  const schoolName = state.profile.schoolName || "ثانوية النخبة";
+  const teacherName = state.profile.name || "أستاذ المادة";
+  const schoolName = state.profile.schoolName || "المؤسسة التعليمية";
   const teacherInitial = teacherName.trim().charAt(0) || "أ";
 
   return (
@@ -316,7 +316,7 @@ export const SidebarSanad: React.FC<SidebarSanadProps> = ({
               aria-label="تصدير نسخة احتياطية"
             >
               <Download className="h-3.5 w-3.5 text-[var(--primary)]" />
-              {!isCollapsed && <span>حفظ محلي</span>}
+              {!isCollapsed && <span>تصدير نسخة احتياطية</span>}
             </button>
             {onSignOut && (
               <button

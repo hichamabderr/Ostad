@@ -201,7 +201,7 @@ export const TopHeaderSanad: React.FC<TopHeaderSanadProps> = ({
             aria-live="polite">
             <span className="h-2 w-2 rounded-full bg-current shrink-0" aria-hidden="true" />
             <span className="hidden sm:inline">{syncStatus.label}</span>
-            {cloudStatus !== "ready" && cloudStatus !== "loading" && onRetrySync && (
+            {(cloudStatus === "sync-failed" || cloudStatus === "local-only") && onRetrySync && (
               <button
                 type="button"
                 onClick={onRetrySync}

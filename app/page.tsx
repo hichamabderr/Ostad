@@ -17,7 +17,6 @@ import { ComingSoon } from "@/components/ComingSoon";
 import { CurriculumUnit } from "@/lib/types";
 
 const MAINTENANCE_MODE = process.env.NEXT_PUBLIC_MAINTENANCE_MODE === "true";
-const ADMIN_EMAIL = "hichamdevpro@gmail.com";
 
 const ViewLoading = () => (
   <div className="flex min-h-64 items-center justify-center" aria-live="polite">
@@ -364,9 +363,15 @@ function AppContent({
             <div className="text-slate-500 font-medium">
               تطبيق مساعد لأستاذ العلوم الإسلامية في التعليم الثانوي
             </div>
-            <div className="text-slate-600 font-bold mt-1">
-              ثانوية الدكتور بن زرجب - تلمسان
-            </div>
+            {state.profile.schoolName ? (
+              <div className="text-slate-600 font-bold mt-1">
+                {state.profile.schoolName}{state.profile.stateName ? ` - ${state.profile.stateName}` : ''}
+              </div>
+            ) : (
+              <div className="text-slate-400 font-medium text-xs mt-1">
+                الطور الثانوي • وزارة التربية الوطنية
+              </div>
+            )}
             <div className="text-[10px] text-slate-400 font-mono mt-0.5">
               2026 - 2027
             </div>

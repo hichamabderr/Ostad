@@ -77,7 +77,7 @@ export const CouncilAnalysis: React.FC<CouncilAnalysisProps> = () => {
               </div>
             </td>
             <td style="width: 32%; text-align: left; vertical-align: top; line-height: 1.4;">
-              السنة الدراسية: <b>${state.profile.academicYear || '2025/2026'}</b><br/>
+              السنة الدراسية: <b>${state.profile.academicYear || '2026/2027'}</b><br/>
               الأستاذ(ة): <b>${state.profile.name || 'أستاذ المادة'}</b><br/>
               الفصل: <b>الثلاثي ${selectedTrimester === 1 ? 'الأول' : selectedTrimester === 2 ? 'الثاني' : 'الثالث'}</b>
             </td>

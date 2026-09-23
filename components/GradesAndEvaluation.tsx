@@ -422,6 +422,9 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
   ) => {
     // allow empty, or number between 0 and 20
     if (value !== '' && (isNaN(Number(value)) || Number(value) < 0 || Number(value) > 20)) {
+      setToastMessage('تنبيه: يجب أن تكون العلامة محصورة بين 0 و 20.');
+      setSaveToast(true);
+      setTimeout(() => setSaveToast(false), 3500);
       return;
     }
     isDirtyRef.current = true;
@@ -1000,6 +1003,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
                         <input
                           type="number" step="0.25" min="0" max="20" placeholder="-" value={draft[mobileActiveTab]}
                           onChange={e => handleGradeChange(student.id, mobileActiveTab, e.target.value)}
+                          aria-label={`${mobileActiveTab === 'continuousEval' ? 'التقويم المستمر' : mobileActiveTab === 'quiz' ? 'الفرض المحروس' : 'الاختبار الفصلي'} - ${student.fullName}`}
                           className="w-24 text-center px-2 rounded-lg border border-slate-300 bg-slate-50 font-mono font-bold text-sm text-slate-900 focus:ring-2 focus:ring-gold focus:outline-none focus:bg-white transition-colors min-h-[44px]" />
                       </div>
                       {mobileActiveTab === 'continuousEval' && (
@@ -1092,6 +1096,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
                                 <input
                                   type="number" step="0.25" min="0" max="20" placeholder="-" value={draft.continuousEval}
                                   onChange={e => handleGradeChange(student.id, 'continuousEval', e.target.value)}
+                                  aria-label={`التقويم المستمر - ${student.fullName}`}
                                   className="w-18 text-center px-1 py-1 rounded-md border border-slate-300 font-mono font-bold text-slate-900 focus:outline-amber-600 focus:border-gold" />
                                 <div className="flex items-center gap-1 text-[10px] text-[var(--primary)]" title="النقطة المقترحة من سجل الحضور والمتابعة">
                                   <span className="font-mono">{calcAutoContinuousEval(student.id).toFixed(2)}</span>
@@ -1111,6 +1116,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
                               <input
                                 type="number" step="0.25" min="0" max="20" placeholder="-" value={draft.quiz}
                                 onChange={e => handleGradeChange(student.id, 'quiz', e.target.value)}
+                                aria-label={`الفرض المحروس - ${student.fullName}`}
                                 className="w-18 text-center px-1 py-1 rounded-md border border-slate-300 font-mono font-bold text-slate-900 focus:outline-amber-600 focus:border-gold" />
                             </td>
 
@@ -1119,6 +1125,7 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
                               <input
                                 type="number" step="0.25" min="0" max="20" placeholder="-" value={draft.exam}
                                 onChange={e => handleGradeChange(student.id, 'exam', e.target.value)}
+                                aria-label={`الاختبار الفصلي - ${student.fullName}`}
                                 className="w-18 text-center px-1 py-1 rounded-md border border-slate-300 font-mono font-bold text-slate-900 focus:outline-amber-600 focus:border-gold" />
                             </td>
 

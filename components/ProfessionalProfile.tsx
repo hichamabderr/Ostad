@@ -23,6 +23,7 @@ import { showToast } from '@/components/Toast';
 import React, { useRef, useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { enqueueAvatarDelete, enqueueAvatarUpload } from '@/lib/supabase/avatar-outbox';
+import { getWeeklyHours } from '@/lib/curriculum-data';
 
 interface ProfessionalProfileProps {
 }
@@ -39,6 +40,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
 
   const totalStudents = state.students.length;
   const totalClasses = state.classes.length;
+  const totalWeeklyHours = state.classes.reduce((sum, c) => sum + getWeeklyHours(c.level), 0);
 
   // Calculate experience years from first appointment date
   const calculateExperience = (appointmentDateStr?: string): number => {
@@ -164,7 +166,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                 </tr>
                 <tr>
                   <td style="padding: 6px; font-weight: bold; color: #2E7D9B; border-bottom: 1px dashed #e2e8f0; text-align: right;">المؤسسة الحالية:</td>
-                  <td style="padding: 6px; border-bottom: 1px dashed #e2e8f0; text-align: right;">${profile.schoolName || "ثانوية الدكتور بن زرجب"}</td>
+                  <td style="padding: 6px; border-bottom: 1px dashed #e2e8f0; text-align: right;">${profile.schoolName || "المؤسسة التعليمية"}</td>
                 </tr>
                 <tr>
                   <td style="padding: 6px; font-weight: bold; color: #2E7D9B; border-bottom: 1px dashed #e2e8f0; text-align: right;">البريد الإلكتروني:</td>
@@ -198,7 +200,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                 </tr>
                 <tr>
                   <td style="padding: 5px; text-align: right;">الحجم الساعي الأسبوعي:</td>
-                  <td style="padding: 5px; font-weight: bold; text-align: center;">${totalClasses * 2} سا/أسبوع</td>
+                  <td style="padding: 5px; font-weight: bold; text-align: center;">${totalWeeklyHours} سا/أسبوع</td>
                 </tr>
               </table>
             </td>
@@ -275,24 +277,24 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                 </span>
               </div>
               <h3 className="text-lg font-bold tracking-tight text-white">
-                {profile.name || "هشام عبد الرحيم"}
+                {profile.name || "أستاذ المادة"}
               </h3>
               <div className="pt-0.5">
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-white/15 backdrop-blur-xs border border-white/20 text-white font-bold text-xs shadow-xs">
                   <Award className="w-3.5 h-3.5 text-amber-300" />
                   <span>
-                    {profile.title || "أستاذ قسم أول • العلوم الإسلامية"}
+                    {profile.title || "أستاذ التعليم الثانوي • العلوم الإسلامية"}
                   </span>
                 </span>
               </div>
               <div className="flex items-center justify-center md:justify-start gap-4 text-xs text-slate-200/90 pt-1 flex-wrap">
                 <span className="flex items-center gap-1">
                   <School className="w-3.5 h-3.5" />
-                  {profile.schoolName || "ثانوية الدكتور بن زرجب"}
+                  {profile.schoolName || "المؤسسة التعليمية"}
                 </span>
                 <span className="flex items-center gap-1">
                   <MapPin className="w-3.5 h-3.5" />
-                  {profile.stateName || "مديرية التربية لولاية تلمسان"}
+                  {profile.stateName || "مديرية التربية"}
                 </span>
                 <span className="flex items-center gap-1 font-mono">
                   {profile.academicYear || "2026/2027"}
@@ -319,7 +321,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
             </div>
             <div className="bg-white/10 backdrop-blur-md rounded-xl p-3 border border-white/10">
               <div className="text-lg font-bold text-white">
-                {profile.experienceYears ?? 7}
+                {profile.experienceYears ?? 0}
               </div>
               <div className="text-[10px] text-slate-200">سنوات خبرة</div>
             </div>
@@ -386,34 +388,39 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
             {/* First Appointment Date */}
             <div>
-              <label className="block font-bold text-slate-700  mb-1">
+              <label htmlFor="prof-firstAppointmentDate" className="block font-bold text-slate-700 mb-1">
                 تاريخ أول تعيين بقطاع التربية الوطنية:
               </label>
               <input
+                id="prof-firstAppointmentDate"
                 type="date" value={profile.firstAppointmentDate || ""}
                 onChange={(e) => handleAppointmentDateChange(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900  font-mono" />
-              <span className="text-[10px] text-slate-500  mt-1 block">
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 font-mono" />
+              <span className="text-[10px] text-slate-500 mt-1 block">
                 تُحسب الأقدمية تلقائياً بناءً على هذا التاريخ
               </span>
             </div>
 
             {/* Professional Rank */}
             <div>
-              <label className="block font-bold text-slate-700  mb-1">
+              <label htmlFor="prof-title" className="block font-bold text-slate-700 mb-1">
                 الرتبة المهنية الحالية:
               </label>
               <select
-                value={profile.title || "أستاذ قسم أول"}
+                id="prof-title"
+                value={profile.title || "أستاذ التعليم الثانوي • العلوم الإسلامية"}
                 onChange={(e) =>
                   setProfile({ ...profile, title: e.target.value })
                 }
-                className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900  font-bold">
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 font-bold">
+                <option value="أستاذ التعليم الثانوي • العلوم الإسلامية">أستاذ التعليم الثانوي • العلوم الإسلامية</option>
+                <option value="أستاذ رئيسي • العلوم الإسلامية">أستاذ رئيسي • العلوم الإسلامية</option>
+                <option value="أستاذ مكون • العلوم الإسلامية">أستاذ مكون • العلوم الإسلامية</option>
                 <option value="أستاذ قسم أول">أستاذ قسم أول</option>
                 <option value="أستاذ قسم ثان">أستاذ قسم ثان</option>
                 <option value="أستاذ مميز">أستاذ مميز</option>
               </select>
-              <span className="text-[10px] text-slate-500  mt-1 block">
+              <span className="text-[10px] text-slate-500 mt-1 block">
                 تنعكس الرتبة فورياً في البطاقة المهنية
               </span>
             </div>
@@ -422,7 +429,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
 
         {/* Section: الحالة المدنية والعائلية */}
         <div className="space-y-4 pt-2">
-          <h3 className="text-base font-bold text-slate-900  flex items-center gap-2 border-b border-slate-100  pb-3">
+          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
             <User className="w-4 h-4 text-[var(--primary)]" />
             <span>الحالة المدنية والعائلية</span>
           </h3>
@@ -430,101 +437,109 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
             {/* First Name AR */}
             <div>
-              <label className="block font-bold text-slate-700  mb-1">
+              <label htmlFor="prof-firstNameAr" className="block font-bold text-slate-700 mb-1">
                 الاسم بالعربية
               </label>
               <input
+                id="prof-firstNameAr"
                 type="text" value={profile.firstNameAr || ""}
                 onChange={(e) =>
                   setProfile({ ...profile, firstNameAr: e.target.value })
                 }
-                placeholder="هشام" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 " />
+                placeholder="الاسم بالعربية" className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900" />
             </div>
 
             {/* Last Name AR */}
             <div>
-              <label className="block font-bold text-slate-700  mb-1">
+              <label htmlFor="prof-lastNameAr" className="block font-bold text-slate-700 mb-1">
                 اللقب بالعربية
               </label>
               <input
+                id="prof-lastNameAr"
                 type="text" value={profile.lastNameAr || ""}
                 onChange={(e) =>
                   setProfile({ ...profile, lastNameAr: e.target.value })
                 }
-                placeholder="عبد الرحيم" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 " />
+                placeholder="اللقب بالعربية" className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900" />
             </div>
 
             {/* Full Name in App */}
             <div>
-              <label className="block font-bold text-slate-700  mb-1">
+              <label htmlFor="prof-name" className="block font-bold text-slate-700 mb-1">
                 الاسم الكامل كما يظهر في التطبيق
               </label>
               <input
+                id="prof-name"
                 type="text" value={profile.name || ""}
                 onChange={(e) =>
                   setProfile({ ...profile, name: e.target.value })
                 }
-                placeholder="هشام عبد الرحيم" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 " />
+                placeholder="أستاذ المادة" className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900" />
             </div>
 
             {/* First Name EN */}
             <div>
-              <label className="block font-bold text-slate-700  mb-1">
+              <label htmlFor="prof-firstNameEn" className="block font-bold text-slate-700 mb-1">
                 الاسم باللاتينية
               </label>
               <input
+                id="prof-firstNameEn"
                 type="text" dir="ltr" value={profile.firstNameEn || ""}
                 onChange={(e) =>
                   setProfile({ ...profile, firstNameEn: e.target.value })
                 }
-                placeholder="Hicham" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-left text-slate-900 " />
+                placeholder="First Name" className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-left text-slate-900" />
             </div>
 
             {/* Last Name EN */}
             <div>
-              <label className="block font-bold text-slate-700  mb-1">
+              <label htmlFor="prof-lastNameEn" className="block font-bold text-slate-700 mb-1">
                 اللقب باللاتينية
               </label>
               <input
+                id="prof-lastNameEn"
                 type="text" dir="ltr" value={profile.lastNameEn || ""}
                 onChange={(e) =>
                   setProfile({ ...profile, lastNameEn: e.target.value })
                 }
-                placeholder="Abderrahim" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-left text-slate-900 " />
+                placeholder="Last Name" className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-left text-slate-900" />
             </div>
 
             {/* Birth Date */}
             <div>
-              <label className="block font-bold text-slate-700  mb-1">
+              <label htmlFor="prof-birthDate" className="block font-bold text-slate-700 mb-1">
                 تاريخ الميلاد
               </label>
               <input
+                id="prof-birthDate"
                 type="date" value={profile.birthDate || ""}
                 onChange={(e) =>
                   setProfile({ ...profile, birthDate: e.target.value })
                 }
-                className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900  font-mono" />
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 font-mono" />
             </div>
 
             {/* Birth Place */}
             <div>
-              <label className="block font-bold text-slate-700  mb-1">
+              <label htmlFor="prof-birthPlace" className="block font-bold text-slate-700 mb-1">
                 مكان الميلاد
               </label>
               <input
+                id="prof-birthPlace"
                 type="text" value={profile.birthPlace || ""}
                 onChange={(e) =>
                   setProfile({ ...profile, birthPlace: e.target.value })
                 }
-                placeholder="تلمسان" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 " />
+                placeholder="مكان الميلاد" className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900" />
             </div>
 
             {/* Gender */}
             <div>
-              <label className="block font-bold text-slate-700  mb-1">
+              <label htmlFor="prof-gender" className="block font-bold text-slate-700 mb-1">
                 الجنس
               </label>
               <select
+                id="prof-gender"
                 value={profile.gender || "M"}
                 onChange={(e) =>
                   setProfile({
@@ -532,7 +547,7 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
                     gender: e.target.value as "M" | "F",
                   })
                 }
-                className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 ">
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900">
                 <option value="M">ذكر</option>
                 <option value="F">أنثى</option>
               </select>
@@ -540,17 +555,19 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
 
             {/* Family Status */}
             <div>
-              <label className="block font-bold text-slate-700  mb-1">
+              <label htmlFor="prof-familyStatus" className="block font-bold text-slate-700 mb-1">
                 الحالة العائلية
               </label>
               <select
-                value={profile.familyStatus || "متزوج"}
+                id="prof-familyStatus"
+                value={profile.familyStatus || ""}
                 onChange={(e) =>
                   setProfile({ ...profile, familyStatus: e.target.value })
                 }
-                className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 ">
-                <option value="متزوج">متزوج (ة)</option>
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900">
+                <option value="">اختر الحالة العائلية</option>
                 <option value="أعزب">أعزب / عزباء</option>
+                <option value="متزوج">متزوج (ة)</option>
                 <option value="مطلق">مطلق (ة)</option>
                 <option value="أرمل">أرمل (ة)</option>
               </select>
@@ -558,59 +575,63 @@ export const ProfessionalProfile: React.FC<ProfessionalProfileProps> = ({
 
             {/* School Name */}
             <div>
-              <label className="block font-bold text-slate-700  mb-1">
+              <label htmlFor="prof-schoolName" className="block font-bold text-slate-700 mb-1">
                 المؤسسة التعليمية (الثانوية)
               </label>
               <input
+                id="prof-schoolName"
                 type="text" value={profile.schoolName || ""}
                 onChange={(e) =>
                   setProfile({ ...profile, schoolName: e.target.value })
                 }
-                placeholder="ثانوية الدكتور بن زرجب" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 " />
+                placeholder="اسم الثانوية أو المؤسسة التعليمية" className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900" />
             </div>
 
             {/* State / Wilaya */}
             <div>
-              <label className="block font-bold text-slate-700  mb-1">
+              <label htmlFor="prof-stateName" className="block font-bold text-slate-700 mb-1">
                 الولاية (مديرية التربية)
               </label>
               <input
+                id="prof-stateName"
                 type="text" value={profile.stateName || ""}
                 onChange={(e) =>
                   setProfile({ ...profile, stateName: e.target.value })
                 }
-                placeholder="تلمسان" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 " />
+                placeholder="الولاية (مثال: الجزائر، وهران، سطيف...)" className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900" />
             </div>
 
             {/* Academic Year */}
             <div>
-              <label className="block font-bold text-slate-700  mb-1">
+              <label htmlFor="prof-academicYear" className="block font-bold text-slate-700 mb-1">
                 السنة الدراسية
               </label>
               <input
+                id="prof-academicYear"
                 type="text" value={profile.academicYear || ""}
                 onChange={(e) =>
                   setProfile({ ...profile, academicYear: e.target.value })
                 }
-                placeholder="2026/2027" className="w-full px-3 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900 " />
+                placeholder="2026/2027" className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-slate-900" />
             </div>
           </div>
         </div>
 
         {/* Section: بريد الدخول والإشعارات */}
-        <div className="pt-4 border-t border-slate-100 ">
-          <label className="block font-bold text-slate-700  mb-1 text-xs">
+        <div className="pt-4 border-t border-slate-100">
+          <label htmlFor="prof-email" className="block font-bold text-slate-700 mb-1 text-xs">
             بريد الدخول والإشعارات
           </label>
           <div className="flex items-center gap-2 max-w-md">
             <div className="relative flex-1">
               <Mail className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
               <input
+                id="prof-email"
                 type="email" dir="ltr" value={profile.email || ""}
                 onChange={(e) =>
                   setProfile({ ...profile, email: e.target.value })
                 }
-                placeholder="hichamdevpro@gmail.com" className="w-full pl-3 pr-9 py-2 border border-slate-200  rounded-xl bg-slate-50  focus:bg-white focus:bg-[var(--accent-navy-card)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-left text-xs text-slate-900 " />
+                placeholder="name@example.com" className="w-full pl-3 pr-9 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-left text-xs text-slate-900" />
             </div>
           </div>
         </div>

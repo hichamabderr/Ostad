@@ -358,7 +358,7 @@ export const AnnualDistribution: React.FC<AnnualDistributionProps> = ({
               <div style="font-size: 10pt; color: #5C6370; margin-top: 2px;">مادة العلوم الإسلامية</div>
             </td>
             <td style="width: 35%; text-align: left; font-size: 10pt; line-height: 1.4; vertical-align: top;">
-              السنة الدراسية: <strong>${state.profile.academicYear || "2025/2026"}</strong><br/>
+              السنة الدراسية: <strong>${state.profile.academicYear || "2026/2027"}</strong><br/>
               الأستاذ(ة): <strong>${state.profile.name || "أستاذ المادة"}</strong><br/>
               الحجم الساعي: <strong>${getWeeklyHours(selectedLevel)} سا/أسبوع</strong> (الإجمالي: <strong>${totalHours} سا</strong>)
             </td>
@@ -441,7 +441,7 @@ export const AnnualDistribution: React.FC<AnnualDistributionProps> = ({
         <div className="flex flex-col md:flex-row items-center justify-between text-center md:text-right border-b border-slate-100 pb-4 gap-3 text-xs text-slate-600">
           <div>
             <div className="font-bold text-[var(--primary)] mt-0.5">
-              {state.profile.schoolName || "ثانوية الدكتور بن زرجب"}
+              {state.profile.schoolName || "المؤسسة التعليمية"}
             </div>
           </div>
 

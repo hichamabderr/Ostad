@@ -7,6 +7,7 @@ import { SessionRecord } from '@/lib/types';
 import { getMergedCurriculumUnits } from '@/lib/curriculum-data';
 import { calculateCouncilStatistics, calculateStudentAverage } from '@/lib/grade-calculator';
 import { getDefaultEstimation } from '@/lib/pedagogical-evaluations';
+import Link from 'next/link';
 import {
   FileText,
   CheckCircle2,
@@ -15,7 +16,8 @@ import {
   FileCheck2,
   Calendar,
   Sparkles,
-  Download
+  Download,
+  AlertCircle
 } from 'lucide-react';
 
 interface DocumentsExportProps {
@@ -491,6 +493,24 @@ export const DocumentsExport: React.FC<DocumentsExportProps> = () => {
           )}
         </div>
       </div>
+
+      {/* Institutional Profile Incomplete Warning Banner */}
+      {!state.profile.schoolName && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              <strong>تنبيه:</strong> لم يتم تحديد اسم المؤسسة التعليمية في إعدادات ملفك الشخصي. أكمل بيانات المؤسسة لتظهر تلقائياً في ترويسة الوثائق المطبوعة.
+            </span>
+          </div>
+          <Link
+            href="/settings"
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold shrink-0 text-xs transition-colors"
+          >
+            الانتقال للإعدادات
+          </Link>
+        </div>
+      )}
 
       {/* 3. Document Sheet Container (Clean, Space-Optimized, Strict RTL) */}
       <div

@@ -44,10 +44,10 @@ export const PEDAGOGICAL_TIERS: Record<ScoreTier, TierData> = {
     rangeLabel: '16 - 17.99',
     label: 'جيد جداً (16 - 17.99)',
     colorClass: 'text-teal-700 bg-teal-50',
-    defaultEstimation: 'نتائج ممتازة',
+    defaultEstimation: 'نتائج جيدة جداً',
     defaultGuidance: 'نتائج جيدة ومشجعة وواصل',
     estimations: [
-      'نتائج ممتازة'
+      'نتائج جيدة جداً'
     ],
     guidanceList: [
       'نتائج جيدة ومشجعة وواصل'

@@ -27,3 +27,18 @@ describe('calculateStudentAverage', () => {
     expect(calculateContinuousEvaluation(8, -1, 5, 5)).toBe(15);
   });
 });
+
+describe('pedagogical evaluations tiers', () => {
+  it('assigns distinctive estimations to EXCELLENT and VERY_GOOD tiers (§3.6)', async () => {
+    const { getDefaultEstimation, getScoreTier, PEDAGOGICAL_TIERS } = await import('@/lib/pedagogical-evaluations');
+    expect(getScoreTier(19)).toBe('EXCELLENT');
+    expect(getDefaultEstimation(19)).toBe('نتائج ممتازة');
+
+    expect(getScoreTier(17)).toBe('VERY_GOOD');
+    expect(getDefaultEstimation(17)).toBe('نتائج جيدة جداً');
+
+    expect(PEDAGOGICAL_TIERS.EXCELLENT.defaultEstimation).not.toBe(
+      PEDAGOGICAL_TIERS.VERY_GOOD.defaultEstimation
+    );
+  });
+});
