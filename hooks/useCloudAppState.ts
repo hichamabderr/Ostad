@@ -634,23 +634,18 @@ export function useCloudAppState(user: User | null) {
       setCloudStatus('sync-pending');
       setSyncError(null);
     }
-    setState((previous) => {
-      const next = updater(previous);
-      const deletedRecordIds = getDeletedRecordIds(previous, next);
-      if (deletedRecordIds.length > 0) {
-        return {
-          ...next,
-          deletedRecordIds: Array.from(new Set([
-            ...(previous.deletedRecordIds || []),
-            ...deletedRecordIds,
-          ])),
-        };
-      }
-      return {
-        ...next,
-        deletedRecordIds: previous.deletedRecordIds || [],
-      };
-    });
+    const previous = latestStateRef.current;
+    const next = updater(previous);
+    const deletedRecordIds = getDeletedRecordIds(previous, next);
+    const committedState = {
+      ...next,
+      deletedRecordIds: Array.from(new Set([
+        ...(previous.deletedRecordIds || []),
+        ...deletedRecordIds,
+      ])),
+    };
+    latestStateRef.current = committedState;
+    setState(committedState);
   };
 
   const updateStateAndWait = async (updater: (previous: AppState) => AppState): Promise<void> => {
@@ -660,21 +655,18 @@ export function useCloudAppState(user: User | null) {
       pendingSaveTimerRef.current = null;
     }
 
-    let nextState: AppState = latestStateRef.current;
-    setState((previous) => {
-      const computed = updater(previous);
-      const deletedRecordIds = getDeletedRecordIds(previous, computed);
-      nextState = {
-        ...computed,
-        deletedRecordIds: Array.from(new Set([
-          ...(previous.deletedRecordIds || []),
-          ...deletedRecordIds,
-        ])),
-      };
-      return nextState;
-    });
-
+    const previous = latestStateRef.current;
+    const computed = updater(previous);
+    const deletedRecordIds = getDeletedRecordIds(previous, computed);
+    const nextState: AppState = {
+      ...computed,
+      deletedRecordIds: Array.from(new Set([
+        ...(previous.deletedRecordIds || []),
+        ...deletedRecordIds,
+      ])),
+    };
     latestStateRef.current = nextState;
+    setState(nextState);
     void saveAppStateCache(nextState, user?.id);
 
     if (!user) return;

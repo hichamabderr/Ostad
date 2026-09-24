@@ -463,7 +463,8 @@ async function applyOperationOnce(client: AnyClient, ownerId: string, workspace:
     const existing = await client.from(table).select('sync_revision,sync_device_id').eq('id', ownerId).maybeSingle();
     if (existing.error) throw existing.error;
     await conflictIfStale(existing.data);
-    const result = await client.from(table).upsert({
+    const profileQuery = client.from(table);
+    const profileUpsert = profileQuery.upsert({
       id: ownerId,
       sync_revision: metadata.revision,
       sync_updated_at: metadata.updatedAt,
@@ -489,6 +490,9 @@ async function applyOperationOnce(client: AnyClient, ownerId: string, workspace:
       family_status: p.familyStatus || null,
       gender: p.gender || null,
     }, { onConflict: 'id' });
+    const result = typeof profileUpsert?.select === 'function'
+      ? await profileUpsert.select('id').single()
+      : await profileUpsert;
     if (result.error) throw result.error; return;
   }
 
@@ -496,7 +500,8 @@ async function applyOperationOnce(client: AnyClient, ownerId: string, workspace:
     const existing = await client.from(table).select('sync_revision,sync_device_id').eq('owner_id', ownerId).eq('workspace_id', workspace).maybeSingle();
     if (existing.error) throw existing.error;
     await conflictIfStale(existing.data);
-    const result = await client.from(table).upsert({
+    const settingsQuery = client.from(table);
+    const settingsUpsert = settingsQuery.upsert({
       owner_id: ownerId,
       workspace_id: workspace,
       settings: operation.payload,
@@ -506,6 +511,9 @@ async function applyOperationOnce(client: AnyClient, ownerId: string, workspace:
       sync_device_id: metadata.deviceId,
       updated_by: ownerId,
     }, { onConflict: 'workspace_id' });
+    const result = typeof settingsUpsert?.select === 'function'
+      ? await settingsUpsert.select('id').single()
+      : await settingsUpsert;
     if (result.error) throw result.error; return;
   }
   if (operation.action === 'upsert') {
@@ -625,7 +633,11 @@ async function applyOperationOnce(client: AnyClient, ownerId: string, workspace:
       throw new SyncConflictError(operation.entity, operation.recordId, Number(tombstone.data.revision), metadata.revision);
     }
 
-    const result = await client.from(table).upsert(row, { onConflict: 'id' });
+    const rowQuery = client.from(table);
+    const rowUpsert = rowQuery.upsert(row, { onConflict: 'id' });
+    const result = typeof rowUpsert?.select === 'function'
+      ? await rowUpsert.select('id').single()
+      : await rowUpsert;
     if (result.error) throw result.error;
     if (tombstone.data) {
       const cleared = await client.from('sync_tombstones').delete()
