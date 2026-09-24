@@ -410,11 +410,50 @@ Implemented on `arena/01a0d4fa-ostad` (commit below), with regression coverage i
 | 3.6/3.10 | Offline (`local-only`) edits are queued and retried instead of living in memory | ✅ done | `useCloudAppState.ts` (debounced save effect) |
 | — | Local memoranda metadata no longer erases `fileStorageKey` | ✅ done | `core-sync.ts` (unitPdfFiles merge) |
 | — | CI: `npm ci` lock file back in sync | ✅ done | `package-lock.json` |
-| 3.4 | Realtime deletes (`replica identity full` / tombstones subscription) | ⏳ Phase 2 | migrations + `useCloudAppState.ts` |
-| 3.5 | Realtime clobber race | ⏳ Phase 2 | `useCloudAppState.ts:388` |
-| 3.6 | `pagehide`/`visibilitychange` flush + single-flight status | ⏳ Phase 2 | `useCloudAppState.ts` |
-| 3.7 | Revision clock bootstrap after a failed load | ⏳ Phase 2 | `useCloudAppState.ts`, `state-cache.ts` |
-| 3.8 | Service worker `NetworkOnly` for Supabase | ⏳ Phase 2 | `app/sw.ts` |
+| 3.4 | Realtime deletes: `replica identity full` on every published table + `sync_tombstones` subscribed | ✅ Phase 2 | `supabase/migrations/20260924120000_realtime_delete_propagation.sql`, `lib/realtime-guard.ts` |
+| 3.5 | Realtime clobber race: a fetch started before a local edit can no longer overwrite it | ✅ Phase 2 | `hooks/useCloudAppState.ts`, `lib/realtime-guard.ts` (`shouldApplyRemoteRefresh`) |
+| 3.5 | Own writes no longer trigger a refresh echo (including tombstone INSERT/DELETE payloads) | ✅ Phase 2 | `lib/realtime-guard.ts` (`isSelfAuthoredChange`) |
+| 3.6 | `pagehide`/`visibilitychange` persist the debounced delta and attempt one flush | ✅ Phase 2 | `hooks/useCloudAppState.ts` |
+| 3.7 | Revision clock bootstrapped from the last known cloud revision (never goes backwards) | ✅ Phase 2 | `lib/realtime-guard.ts` (`nextRevisionFloor`) |
+| 3.8 | Service worker `NetworkOnly` for Supabase and `/auth/` (was NetworkFirst + 1h cache) | ✅ Phase 2 | `app/sw.ts` |
+
+### Phase 2 detail
+
+**3.4 — Why deletes were invisible.** Realtime evaluates the subscription `filter` against the
+record it is about to broadcast. Without `replica identity full`, the old record of a DELETE
+carries only the primary key, so `owner_id=eq.<uid>` can never match and the client is simply
+never told. `20260924120000_realtime_delete_propagation.sql` sets `replica identity full` on
+every published table and keeps `sync_tombstones` on `supabase_realtime`, so a delete on one
+device now reaches every open tab immediately instead of at its next cold load.
+
+*Caveat, documented in the migration:* Postgres RLS is not evaluated for DELETE events (the row
+no longer exists to be checked), so the subscription filter is what scopes the stream. Filters
+are applied server-side before broadcasting, and every affected row carries `owner_id`.
+
+**3.5 — The clobber race.** `refreshRemoteState` used to check its guards *before* the network
+round trip and then apply the response unconditionally. An edit made during that window was
+overwritten on screen by the older server copy — and only recovered if the debounced save
+happened to flush afterwards. The hook now keeps a synchronous `localEditSeqRef` (bumped in
+`updateState` and `updateStateAndWait`), captures it before fetching, and re-runs the whole
+guard set after the response arrives via `shouldApplyRemoteRefresh`. The same helper also stops
+a refresh from racing an outbox flush that owns the final state.
+
+**3.6 — Tab close.** The debounced save holds up to 300ms of work in memory only, so a tab that
+died inside that window lost the edit. On `pagehide`/`visibilitychange:hidden` the pending
+delta is written to the outbox first (IndexedDB survives the unload) and a single best-effort
+flush is attempted; anything that does not make it out is retried on the next start.
+
+**3.7 — Revision clock.** `conflictIfStale` only rejects a write when the server revision is
+strictly greater than the one sent, so a clock that restarts at 0 after a failed load silently
+overwrites rows that changed meanwhile. The clock is now seeded from the cached
+`cloudRevision` and only ever moves forward.
+
+**3.8 — Service worker.** `defaultCache` routes every cross-origin GET through `NetworkFirst`
+with a one-hour expiration, and the Supabase REST API lives on a cross-origin host: a
+`classes`/`students`/`sync_tombstones` read could be replayed from the HTTP cache for an hour
+after the server had already deleted the row. Supabase URLs (and one-time `/auth/` callbacks)
+are now `NetworkOnly`, registered ahead of `defaultCache` because the first matching route
+wins.
 
 Gate results after Phase 1: `npx tsc --noEmit` clean, `npm run lint` clean,
 `npx vitest run` **80/80 passed** (6 files). `npm run build` still needs network access for

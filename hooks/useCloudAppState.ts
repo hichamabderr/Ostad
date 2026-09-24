@@ -11,6 +11,13 @@ import { applySyncOutboxEntry, clearCloudRosterData, loadCoreState, resetCloudWo
 import { commitRosterImportBatch, type RosterImportClass, type RosterImportStudent } from '@/lib/supabase/roster-import';
 import { flushMemorandaOutbox } from '@/lib/supabase/memoranda-storage';
 import {
+  SYNCHRONIZED_TABLES,
+  isSelfAuthoredChange,
+  nextRevisionFloor,
+  shouldApplyRemoteRefresh,
+  shouldFlushOnBackground,
+} from '@/lib/realtime-guard';
+import {
   enqueueSyncDelta,
   getSyncDeviceId,
   listSyncOutbox,
@@ -218,6 +225,9 @@ export function useCloudAppState(user: User | null) {
   const lastSyncedStateRef = useRef<AppState | null>(null);
   const revisionRef = useRef(0);
   const updatedAtRef = useRef(new Date(0).toISOString());
+  // Incremented synchronously on every user edit. A Realtime refresh captures it before its
+  // fetch and refuses to apply a response if it moved meanwhile (the clobber race).
+  const localEditSeqRef = useRef(0);
 
   const registerConflict = async (error: unknown): Promise<void> => {
     if (!(error instanceof SyncConflictError) || !user) return;
@@ -270,6 +280,10 @@ export function useCloudAppState(user: User | null) {
         const cachedState = await loadAppStateCache(user?.id);
         if (cachedState && !isDemoState(cachedState)) {
           currentLocal = cachedState;
+          // Start the revision clock where the last successful sync left it. Without this an
+          // offline start would publish revision 1 writes and silently overwrite rows that
+          // changed on the server meanwhile (SYNC-REVIEW.md 3.7).
+          revisionRef.current = nextRevisionFloor(revisionRef.current, cachedState.cloudRevision);
           if (active) {
             latestStateRef.current = cachedState;
             setState(cachedState);
@@ -395,27 +409,38 @@ export function useCloudAppState(user: User | null) {
       setConflicts([]);
     });
 
+    /** Whether the fetched state may still replace the local one (see realtime-guard). */
+    const refreshAllowed = async (expectedGeneration: number, expectedEditSeq: number) => shouldApplyRemoteRefresh({
+      active,
+      authenticated: true,
+      syncing: syncingRef.current,
+      pendingSaveScheduled: pendingSaveTimerRef.current !== null,
+      pendingOutboxCount: (await listSyncOutbox(user.id)).length,
+      generationChanged: saveGenerationRef.current !== expectedGeneration,
+      localEditsDuringFetch: localEditSeqRef.current - expectedEditSeq,
+    });
+
     const refreshRemoteState = async () => {
+      const expectedGeneration = saveGenerationRef.current;
+      const expectedEditSeq = localEditSeqRef.current;
       if (!active || !(await hasAuthenticatedOwner(client, user.id))) return;
-      if (syncingRef.current || pendingSaveTimerRef.current !== null || (await listSyncOutbox(user.id)).length > 0) return;
+      if (!(await refreshAllowed(expectedGeneration, expectedEditSeq))) return;
 
       const remoteState = await loadCoreState(client, latestStateRef.current);
+
+      // Re-check after the round trip: the fetch result is stale if the user edited while
+      // it was in flight, and applying it would silently roll that edit back on screen.
+      if (!(await refreshAllowed(expectedGeneration, expectedEditSeq))) return;
+
       latestStateRef.current = remoteState;
       lastSyncedStateRef.current = remoteState;
-      if (typeof remoteState.cloudRevision === 'number' && remoteState.cloudRevision > revisionRef.current) {
-        revisionRef.current = remoteState.cloudRevision;
-      }
+      revisionRef.current = nextRevisionFloor(revisionRef.current, remoteState.cloudRevision);
       setState(remoteState);
       void saveAppStateCache(remoteState, user.id);
     };
 
     let channel = client.channel(`core-state:${user.id}`);
-    const synchronizedTables = [
-      'profiles', 'classes', 'students', 'grades', 'sessions', 'attendance',
-      'session_behaviors', 'timetable_slots', 'custom_units', 'lesson_progress',
-      'lesson_plans', 'app_settings', 'dashboard_tasks', 'memoranda_files',
-    ] as const;
-    for (const table of synchronizedTables) {
+    for (const table of SYNCHRONIZED_TABLES) {
       channel = channel.on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -424,10 +449,9 @@ export function useCloudAppState(user: User | null) {
           ? { filter: `id=eq.${user.id}` }
           : { filter: `owner_id=eq.${user.id}` }),
       }, (payload) => {
-        const newRecord = payload.new as { sync_device_id?: string } | null;
-        if (newRecord?.sync_device_id && newRecord.sync_device_id === getSyncDeviceId()) {
-          return;
-        }
+        // Our own writes echo back on this channel. Refreshing for them is wasted work, and
+        // the fetch would race the in-memory state the user has already moved past.
+        if (isSelfAuthoredChange(payload, getSyncDeviceId())) return;
         void refreshRemoteState().catch((error) => {
           if (isLocalOnlyCloudError(error)) {
             setCloudStatus('local-only');
@@ -542,9 +566,7 @@ export function useCloudAppState(user: User | null) {
         setState(remoteState);
         latestStateRef.current = remoteState;
         lastSyncedStateRef.current = remoteState;
-        if (typeof remoteState.cloudRevision === 'number' && remoteState.cloudRevision > revisionRef.current) {
-          revisionRef.current = remoteState.cloudRevision;
-        }
+        revisionRef.current = nextRevisionFloor(revisionRef.current, remoteState.cloudRevision);
         setCloudStatus('ready');
       } catch (error) {
         setCloudStatus('local-only');
@@ -580,9 +602,7 @@ export function useCloudAppState(user: User | null) {
       const remoteState = await loadCoreState(client, latestStateRef.current);
       latestStateRef.current = remoteState;
       lastSyncedStateRef.current = remoteState;
-      if (typeof remoteState.cloudRevision === 'number' && remoteState.cloudRevision > revisionRef.current) {
-        revisionRef.current = remoteState.cloudRevision;
-      }
+      revisionRef.current = nextRevisionFloor(revisionRef.current, remoteState.cloudRevision);
       setState(remoteState);
       void saveAppStateCache(remoteState, user.id);
     } catch (error) {
@@ -618,6 +638,68 @@ export function useCloudAppState(user: User | null) {
       return false;
     }
   };
+
+  // Durability when the tab is closed or backgrounded. The debounced save holds up to 300ms
+  // of edits in memory only, so a tab that dies inside that window used to lose them. Here the
+  // delta is written to the outbox first (IndexedDB, survives the unload) and only then is one
+  // best-effort flush attempted — the browser may still kill the page mid-request, but the
+  // work is already queued and will be retried on the next start.
+  useEffect(() => {
+    if (!user || typeof window === 'undefined') return;
+
+    const persistPendingWork = () => {
+      const scheduled = pendingSaveTimerRef.current !== null && pendingSaveTimerRef.current !== -1;
+      void (async () => {
+        try {
+          if (scheduled) {
+            window.clearTimeout(pendingSaveTimerRef.current as number);
+            pendingSaveTimerRef.current = null;
+            const client = createSupabaseBrowserClient();
+            // Without a synced baseline there is no meaningful delta to queue; the initial
+            // load owns the state in that case, so only the flush below is attempted.
+            if (client && lastSyncedStateRef.current && (await hasAuthenticatedOwner(client, user.id))) {
+              // The cancelled timer will never run, so take over its job with the freshest
+              // state and invalidate any in-flight save that still holds an older snapshot.
+              saveGenerationRef.current += 1;
+              revisionRef.current = Math.max(
+                revisionRef.current + 1,
+                nextRevisionFloor(latestStateRef.current.cloudRevision, lastSyncedStateRef.current?.cloudRevision),
+              );
+              updatedAtRef.current = new Date().toISOString();
+              await enqueueSyncDelta(
+                user.id,
+                lastSyncedStateRef.current,
+                latestStateRef.current,
+                revisionRef.current,
+                updatedAtRef.current,
+              );
+            }
+          }
+          const pendingOutboxCount = (await listSyncOutbox(user.id)).length;
+          if (!shouldFlushOnBackground({
+            pendingSaveScheduled: false,
+            pendingOutboxCount,
+            status: cloudStatusRef.current,
+          })) return;
+          await flushOutboxNow();
+        } catch (error) {
+          console.warn('Background persistence warning:', describeCloudError(error).message);
+        }
+      })();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') persistPendingWork();
+    };
+    window.addEventListener('pagehide', persistPendingWork);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('pagehide', persistPendingWork);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  // Scoped to the authenticated user; the handler reads the live refs, not render values.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   /**
    * Settings escape hatch: drop unacknowledged local operations and reload the workspace
@@ -713,6 +795,7 @@ export function useCloudAppState(user: User | null) {
   };
 
   const handleUpdateState = (updater: (previous: AppState) => AppState) => {
+    localEditSeqRef.current += 1;
     if (user && (cloudStatus === 'ready' || cloudStatus === 'sync-failed')) {
       setCloudStatus('sync-pending');
       setSyncError(null);
@@ -732,6 +815,7 @@ export function useCloudAppState(user: User | null) {
   };
 
   const updateStateAndWait = async (updater: (previous: AppState) => AppState): Promise<void> => {
+    localEditSeqRef.current += 1;
     saveGenerationRef.current += 1;
     if (pendingSaveTimerRef.current !== null && pendingSaveTimerRef.current !== -1) {
       window.clearTimeout(pendingSaveTimerRef.current);
