@@ -18,6 +18,18 @@ async function checksumForBlob(blob: Blob): Promise<string> {
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * The authenticated user id even when the workspace/schema is unavailable, so a queued
+ * upload can always be attributed to its owner.
+ */
+async function currentOwnerId(): Promise<string | undefined> {
+  const client = createSupabaseBrowserClient();
+  if (!client) return undefined;
+  const { data, error } = await client.auth.getUser();
+  if (error || !data.user) return undefined;
+  return data.user.id;
+}
+
 async function currentClient(): Promise<{ client: Client; userId: string; workspaceId: string } | undefined> {
   const client = createSupabaseBrowserClient();
   if (!client) return undefined;
@@ -36,13 +48,14 @@ export async function uploadTeacherMemorandum(unitId: string, file: File): Promi
 }> {
   const context = await currentClient();
   if (!context) {
-    await enqueueMemorandaUpload(unitId, file);
+    const ownerId = await currentOwnerId();
+    if (ownerId) await enqueueMemorandaUpload(ownerId, unitId, file);
     throw new Error('تم حفظ رفع المذكرة محلياً، وستتم المحاولة عند عودة الاتصال.');
   }
   try {
     return await uploadTeacherMemorandumWithContext(context, unitId, file);
   } catch (error) {
-    await enqueueMemorandaUpload(unitId, file);
+    await enqueueMemorandaUpload(context.userId, unitId, file);
     throw error;
   }
 }
@@ -103,18 +116,24 @@ async function uploadTeacherMemorandumWithContext(
   return { storagePath, checksum };
 }
 
-export async function flushMemorandaOutbox(): Promise<void> {
-  const entries = await listMemorandaOutbox();
+/**
+ * Flushes only the operations queued by the authenticated owner. Operations queued by a
+ * previous account on a shared device are never uploaded into the current one.
+ */
+export async function flushMemorandaOutbox(ownerId: string): Promise<void> {
+  const entries = await listMemorandaOutbox(ownerId);
   if (entries.length === 0) return;
   const context = await currentClient();
-  if (!context) throw new Error('لا توجد جلسة مستخدم صالحة لمزامنة المذكرات.');
+  if (!context || context.userId !== ownerId) {
+    throw new Error('لا توجد جلسة مستخدم صالحة لمزامنة المذكرات.');
+  }
   for (const operation of entries) {
     if (operation.action === 'upload') {
       await uploadTeacherMemorandumWithContext(context, operation.unitId, operation.file);
     } else {
       await deleteTeacherMemorandumWithContext(context, operation.storagePath);
     }
-    await removeMemorandaOutboxEntry(operation.id);
+    await removeMemorandaOutboxEntry(ownerId, operation.id);
   }
 }
 
@@ -151,13 +170,14 @@ export async function getMemorandumUrl(unitId: string): Promise<string | undefin
 export async function deleteTeacherMemorandum(storagePath: string): Promise<void> {
   const context = await currentClient();
   if (!context) {
-    await enqueueMemorandaDelete(storagePath);
+    const ownerId = await currentOwnerId();
+    if (ownerId) await enqueueMemorandaDelete(ownerId, storagePath);
     throw new Error('تم حفظ حذف المذكرة محلياً، وستتم المحاولة عند عودة الاتصال.');
   }
   try {
     await deleteTeacherMemorandumWithContext(context, storagePath);
   } catch (error) {
-    await enqueueMemorandaDelete(storagePath);
+    await enqueueMemorandaDelete(context.userId, storagePath);
     throw error;
   }
 }

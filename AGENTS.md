@@ -38,6 +38,14 @@
   الحالة والأفعال عبر Props عند الحاجة، وتستخدم selectors typed من
   `lib/state-selectors.ts` للاشتقاقات الشائعة، ولا تنشئ snapshot سحابياً
   مونوليثياً أو متجراً ثانياً ينافس دورة المزامنة.
+* **عقد سلامة البيانات (إلزامي):** Supabase هو المصدر الوحيد للحقيقة، وIndexedDB كاش محلي
+  وطابور عمليات غير مؤكدة فقط. عند تحميل الحالة لا يُستبقى سجل محلي إلا إذا كان له عمل معلّق
+  في الـ outbox (`pendingRecordIds`) وبدون شاهد حذف. الحذف مطلق: `sync_tombstones` تُقرأ عند
+  التحميل، وتعديل سجل محذوف يُرفض بـ`SyncConflictError` ولا يُمسح شاهده، ولا يُسمح بتجاوزه إلا
+  عبر `allowTombstoneOverride` الناتج عن قرار المستخدم في نافذة التعارض. تسجيل الخروج يفرّغ
+  الطابور ثم يستدعي `purgeLocalUserData`، وكل مفاتيح IndexedDB الخاصة بالملفات مربوطة بالمالك
+  (`sanad:pdf:<ownerId>:<unitId>`، `sanad:memoranda-outbox:<ownerId>:*`). الاختبارات الملزمة في
+  `__tests__/data-safety.test.ts`، والتفاصيل في `STATE-INVENTORY.md` و`SYNC-REVIEW.md`.
 * **المزامنة وطابور Delta:** الحالات المعتمدة هي `loading` أثناء التحميل، `ready` عند اتصال
   السحابة، و`sync-pending` و`sync-failed` و`conflict` للتغييرات قيد الإرسال
   أو الفشل أو التعارض، و`local-only` عند غياب الإعداد أو تعذر المخطط/الشبكة.

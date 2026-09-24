@@ -24,6 +24,11 @@ export interface SyncOutboxEntry {
   attempts?: number;
   nextAttemptAt?: string;
   lastError?: string;
+  /**
+   * Set only when the user explicitly chose "keep my local version" for a record whose
+   * deletion was recorded on another device. Without it a tombstone always wins.
+   */
+  allowTombstoneOverride?: boolean;
 }
 
 export interface SyncConflictDescriptor {
@@ -396,14 +401,34 @@ export async function enqueueSyncDelta(
 }
 
 export async function enqueueSyncOperations(
-  ownerId: string, operations: SyncOperation[], revision: number, updatedAt: string,
+  ownerId: string,
+  operations: SyncOperation[],
+  revision: number,
+  updatedAt: string,
+  options: { allowTombstoneOverride?: boolean } = {},
 ): Promise<string> {
   const id = `${ownerId}:${getSyncDeviceId()}:${revision}:${updatedAt}`;
   await set(outboxKey(id), {
     id, ownerId, revision, updatedAt, operations, createdAt: new Date().toISOString(),
     attempts: 0, nextAttemptAt: new Date().toISOString(),
+    allowTombstoneOverride: options.allowTombstoneOverride ?? false,
   } satisfies SyncOutboxEntry);
   return id;
+}
+
+/**
+ * Identifiers of records that still have unacknowledged work in the outbox, in the
+ * `entity:recordId` form. Used to decide which local records may survive a cloud load.
+ */
+export async function listPendingRecordIds(ownerId: string): Promise<Set<string>> {
+  const entries = await listSyncOutbox(ownerId);
+  const pending = new Set<string>();
+  for (const entry of entries) {
+    for (const operation of entry.operations) {
+      pending.add(`${operation.entity}:${operation.recordId}`);
+    }
+  }
+  return pending;
 }
 
 export async function listSyncOutbox(ownerId: string): Promise<SyncOutboxEntry[]> {

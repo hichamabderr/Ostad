@@ -15,6 +15,7 @@ import {
   Calendar,
   CheckCircle2,
   Clock,
+  CloudDownload,
   Download,
   Plus,
   RotateCcw,
@@ -39,9 +40,11 @@ const RESET_CONFIRMATION = "إعادة تعيين";
 export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
   const {
     state,
+    ownerId,
     updateStateAndWait,
     replaceStateFromBackup,
     clearRosterData,
+    resyncFromCloud,
   } = useAppState();
   const [calendarSettings, setCalendarSettings] =
     useState<AcademicCalendarSettings>(
@@ -54,6 +57,7 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
     "national" | "religious" | "term"
   >("national");
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showResyncConfirm, setShowResyncConfirm] = useState(false);
   const [showHolidaysConfirm, setShowHolidaysConfirm] = useState(false);
   const [showSuccessMsg, setShowSuccessMsg] = useState("");
   const [pendingImportedState, setPendingImportedState] = useState<AppState | null>(null);
@@ -99,6 +103,20 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
       setShowResetConfirm(false);
       setResetConfirmationText("");
       showToast("تعذر تأكيد إعادة تعيين الأقسام والتلاميذ في السحابة. يرجى التحقق من الاتصال وإعادة المحاولة.", "error");
+    }
+  };
+
+  const handleResyncFromCloud = async () => {
+    setShowResyncConfirm(false);
+    try {
+      await resyncFromCloud();
+      showToast("تمت إعادة تحميل مساحة العمل من الخادم السحابي.", "success");
+    } catch (error) {
+      console.error("Cloud re-sync failed:", error);
+      showToast(
+        error instanceof Error ? error.message : "تعذرت إعادة المزامنة من السحابة.",
+        "error",
+      );
     }
   };
 
@@ -197,7 +215,7 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
 
   const handleExportPdfArchive = async () => {
     try {
-      const archive = await createPdfBackupArchive(state);
+      const archive = await createPdfBackupArchive(state, ownerId);
       const url = URL.createObjectURL(new Blob([archive.buffer as ArrayBuffer], { type: "application/zip" }));
       const a = document.createElement("a");
       a.href = url;
@@ -214,7 +232,7 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const restored = await restorePdfBackupArchive(file);
+      const restored = await restorePdfBackupArchive(file, ownerId);
       await updateStateAndWait(prev => ({
         ...prev,
         unitPdfFiles: { ...(prev.unitPdfFiles || {}), ...restored },
@@ -785,6 +803,27 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
           </button>
         </div>
       </div>
+
+      {/* Re-sync from cloud: the escape hatch when local and server data disagree */}
+      <div className="bg-white border border-slate-200/90 rounded-xl p-6 shadow-xs space-y-4">
+        <div>
+          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+            <CloudDownload className="w-4 h-4 text-[var(--primary)]" />
+            إعادة المزامنة الكاملة من السحابة
+          </h3>
+          <p className="text-xs text-slate-500 mt-0.5">
+            يعتمد التطبيق على الخادم السحابي كمصدر رسمي للبيانات. استخدم هذا الإجراء إذا لاحظت
+            اختلافاً بين هذا الجهاز وحسابك على جهاز آخر؛ سيتم تجاهل أي تغييرات محلية لم تُزامن بعد
+            وإعادة تحميل مساحة العمل كما هي في السحابة.
+          </p>
+        </div>
+        <button
+          onClick={() => setShowResyncConfirm(true)}
+          className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-bold text-slate-800 transition-colors shadow-xs cursor-pointer">
+          <CloudDownload className="w-4 h-4 text-[var(--primary)]" />
+          <span>إعادة التحميل من السحابة</span>
+        </button>
+      </div>
         </section>
       )}
 
@@ -986,6 +1025,13 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
             handleDeleteHoliday(holidayToDeleteId);
           }
         }}
+      />
+      <ConfirmDialog
+        isOpen={showResyncConfirm}
+        title="إعادة المزامنة من السحابة"
+        message="سيتم تجاهل التغييرات المحلية غير المؤكدة (إن وجدت) وإعادة تحميل مساحة العمل من الخادم السحابي. هل تريد المتابعة؟"
+        onCancel={() => setShowResyncConfirm(false)}
+        onConfirm={() => void handleResyncFromCloud()}
       />
       <ConfirmDialog
         isOpen={Boolean(pendingImportedState)}

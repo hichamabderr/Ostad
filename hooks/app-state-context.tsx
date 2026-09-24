@@ -10,6 +10,8 @@ export type AppStateSyncUpdater = (updater: (previous: AppState) => AppState) =>
 
 export interface AppStateContextValue {
   state: AppState;
+  /** Authenticated owner id, used to namespace local (IndexedDB) keys per teacher. */
+  ownerId: string | null;
   updateState: AppStateUpdater;
   updateStateAndWait: AppStateSyncUpdater;
   replaceStateFromBackup: (state: AppState) => Promise<void>;
@@ -20,6 +22,8 @@ export interface AppStateContextValue {
   ) => Promise<void>;
   clearRosterData: () => Promise<void>;
   resetWorkspace: () => Promise<void>;
+  /** Reloads the whole workspace from the cloud, discarding queued local operations. */
+  resyncFromCloud: () => Promise<void>;
   conflicts: SyncConflictDescriptor[];
   resolveConflictKeepRemote: (conflict: SyncConflictDescriptor) => Promise<void>;
   resolveConflictKeepLocal: (conflict: SyncConflictDescriptor) => Promise<void>;
