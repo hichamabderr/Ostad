@@ -3,6 +3,21 @@
 import { showToast } from "@/components/Toast";
 import { useAppState } from '@/hooks/app-state-context';
 import {
+  backupNudge,
+  formatAge,
+  isBackupNudgeDismissed,
+  pendingSummary,
+  shortDeviceId,
+  syncStatusSummary,
+} from '@/lib/sync-status';
+import {
+  dismissBackupNudge,
+  readBackupReminder,
+  recordBackupExported,
+  writeBackupReminder,
+  type BackupReminder,
+} from '@/lib/backup-reminder';
+import {
   AppState,
   DEFAULT_CALENDAR_SETTINGS,
   exportBackupJSON,
@@ -15,7 +30,13 @@ import {
   Calendar,
   CheckCircle2,
   Clock,
+<<<<<<< ours
   CloudDownload,
+||||||| base
+=======
+  CloudDownload,
+  RefreshCw,
+>>>>>>> theirs
   Download,
   Plus,
   RotateCcw,
@@ -25,7 +46,7 @@ import {
   Upload,
   UserRound,
 } from "lucide-react";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { ProfessionalProfile } from "./ProfessionalProfile";
 import { PWAInstallButton } from "./PWAInstallButton";
@@ -44,7 +65,18 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
     updateStateAndWait,
     replaceStateFromBackup,
     clearRosterData,
+<<<<<<< ours
     resyncFromCloud,
+||||||| base
+=======
+    resyncFromCloud,
+    pendingCount,
+    lastSyncedAt,
+    refreshSyncStatus,
+    syncDeviceId,
+    retrySync,
+    cloudStatus,
+>>>>>>> theirs
   } = useAppState();
   const [calendarSettings, setCalendarSettings] =
     useState<AcademicCalendarSettings>(
@@ -64,6 +96,8 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
   const [isAddHolidayOpen, setIsAddHolidayOpen] = useState(false);
   const [holidayToDeleteId, setHolidayToDeleteId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
+  const [reminder, setReminder] = useState<BackupReminder | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [resetConfirmationText, setResetConfirmationText] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -161,7 +195,64 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
     setHolidayToDeleteId(null);
   };
 
+  // Sync panel + backup nudge derive everything from pure helpers so the wording rules stay
+  // testable; the component only renders them.
+  // Reading localStorage during render would break hydration, so the reminder is loaded in a
+  // queued task and refreshed when the backup tab is open (age labels must not go stale).
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      setReminder(readBackupReminder(ownerId));
+      setNow(Date.now());
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [ownerId]);
+
+  useEffect(() => {
+    if (activeTab !== "backup") return;
+    void refreshSyncStatus();
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  const statusSummary = syncStatusSummary(cloudStatus, pendingCount);
+  const nudge = backupNudge(reminder?.lastBackupAt, now);
+  const nudgeVisible = nudge.prominent && !isBackupNudgeDismissed(reminder?.dismissedAt, now);
+  const [resyncBusy, setResyncBusy] = useState(false);
+
+  const handleBackupRecorded = () => {
+    setReminder(recordBackupExported(ownerId));
+    setNow(Date.now());
+  };
+
+  const handleDismissNudge = () => {
+    setReminder(dismissBackupNudge(ownerId));
+    setNow(Date.now());
+  };
+
+  const handleRetryNow = async () => {
+    await retrySync();
+    await refreshSyncStatus();
+    setNow(Date.now());
+  };
+
+  const handleResyncNow = async () => {
+    setResyncBusy(true);
+    try {
+      await resyncFromCloud();
+      await refreshSyncStatus();
+    } finally {
+      setResyncBusy(false);
+    }
+  };
+
   const handleExportJSON = () => {
+    handleBackupRecorded();
     const json = exportBackupJSON(state);
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -744,6 +835,73 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
 
       {activeTab === "backup" && (
         <section aria-label="النسخ الاحتياطي" className="space-y-6">
+      {/* Section: حالة المزامنة */}
+      <div className="bg-white border border-slate-200/90 rounded-xl p-6 shadow-xs space-y-4">
+        <div>
+          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 text-[var(--primary)]" />
+            حالة المزامنة مع الخادم
+          </h3>
+          <p className="text-xs text-slate-500 mt-0.5">
+            كل تعديلاتك تُحفظ محلياً أولاً ثم تُرفع تلقائياً إلى الخادم، ويظهر هنا ما تبقّى.
+          </p>
+        </div>
+
+        <div
+          role="status"
+          aria-live="polite"
+          className={`rounded-xl border p-4 space-y-1 ${
+            statusSummary.tone === "ok"
+              ? "border-emerald-200 bg-emerald-50/60"
+              : statusSummary.tone === "busy"
+                ? "border-sky-200 bg-sky-50/60"
+                : statusSummary.tone === "warn"
+                  ? "border-amber-200 bg-amber-50/60"
+                  : "border-rose-200 bg-rose-50/60"
+          }`}>
+          <p className="text-sm font-bold text-slate-900">{statusSummary.label}</p>
+          <p className="text-xs text-slate-600">{statusSummary.detail}</p>
+          <dl className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 text-xs">
+            <div>
+              <dt className="text-slate-500">عمليات بانتظار الرفع</dt>
+              <dd className="font-bold text-slate-800">{pendingCount}</dd>
+            </div>
+            <div>
+              <dt className="text-slate-500">آخر تأكيد من الخادم</dt>
+              <dd className="font-bold text-slate-800">{lastSyncedAt ? formatAge(lastSyncedAt, now) : "لا يوجد بعد"}</dd>
+            </div>
+            <div>
+              <dt className="text-slate-500">معرّف هذا الجهاز</dt>
+              <dd className="font-bold text-slate-800" title={syncDeviceId ?? undefined}>
+                {shortDeviceId(syncDeviceId)}
+              </dd>
+            </div>
+          </dl>
+          <p className="text-[11px] text-slate-500 pt-1">{pendingSummary(pendingCount)}</p>
+        </div>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => void handleRetryNow()}
+            disabled={pendingCount === 0}
+            className="flex items-center gap-2 px-4 py-2.5 bg-[var(--primary)] text-white rounded-xl text-xs font-bold transition-opacity shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+            <RefreshCw className="w-4 h-4" />
+            <span>مزامنة الآن</span>
+          </button>
+          <button
+            onClick={() => setShowResyncConfirm(true)}
+            disabled={resyncBusy}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-bold text-slate-800 transition-colors shadow-xs cursor-pointer disabled:opacity-50">
+            <CloudDownload className="w-4 h-4 text-[var(--primary)]" />
+            <span>إعادة تحميل كل البيانات من الخادم</span>
+          </button>
+        </div>
+        <p className="text-[11px] text-slate-500">
+          إعادة التحميل تلغي العمليات التي لم تُرفع بعد وتستبدلها بنسخة الخادم. استعملها فقط إذا
+          لاحظت اختلافاً بين جهازين.
+        </p>
+      </div>
+
       {/* Section 4: النسخ الاحتياطي واستعادة البيانات */}
       <div className="bg-white border border-slate-200/90 rounded-xl p-6 shadow-xs space-y-4">
         <div>
@@ -756,6 +914,27 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
             يمكنك تنزيل نسخة احتياطية لنقلها لجهاز آخر في أي وقت.
           </p>
         </div>
+
+        {nudgeVisible && (
+          <div
+            role="status"
+            className={`flex items-start justify-between gap-3 rounded-xl border p-3 ${
+              nudge.level === "overdue" ? "border-rose-200 bg-rose-50/60" : "border-amber-200 bg-amber-50/60"
+            }`}>
+            <p className="text-xs text-slate-700 leading-relaxed">
+              <span className="font-bold">تذكير: </span>
+              {nudge.message}
+            </p>
+            <button
+              onClick={handleDismissNudge}
+              className="shrink-0 text-[11px] font-bold text-slate-600 hover:text-slate-900 underline">
+              تذكيري لاحقاً
+            </button>
+          </div>
+        )}
+        <p className="text-[11px] text-slate-500">
+          {nudge.level === "ok" ? nudge.message : "يُنصح بتصدير نسخة احتياطية كل أسبوع."}
+        </p>
 
         <div className="flex items-center gap-3 pt-2 flex-wrap">
           <button

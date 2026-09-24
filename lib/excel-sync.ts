@@ -7,6 +7,33 @@ import { normalizeDateToIso } from './date-utils';
 
 const MAX_EXCEL_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 const EXCEL_FILE_EXTENSIONS = new Set(['.xlsx', '.xlsm', '.xlsb', '.xls']);
+/**
+ * Guard rails for `xlsx`, which has no fix available for its (dev-only-exposed) advisories on
+ * npm. The workbook is untrusted input, so the cost of parsing it is bounded here instead:
+ * a sheet count cap, a total-rows cap and a wall-clock budget. Anything larger is refused
+ * with an explicit message rather than freezing the tab.
+ */
+const MAX_EXCEL_SHEETS = 60;
+const MAX_EXCEL_ROWS_TOTAL = 60_000;
+const MAX_EXCEL_PARSE_MS = 20_000;
+
+function assertSheetBudget(sheetCount: number): void {
+  if (sheetCount > MAX_EXCEL_SHEETS) {
+    throw new Error(`عدد أوراق العمل كبير جداً (${sheetCount}). الحد الأقصى هو ${MAX_EXCEL_SHEETS} ورقة.`);
+  }
+}
+
+function assertRowBudget(totalRows: number): void {
+  if (totalRows > MAX_EXCEL_ROWS_TOTAL) {
+    throw new Error(`حجم البيانات في الملف كبير جداً (${totalRows} سطراً). الحد الأقصى هو ${MAX_EXCEL_ROWS_TOTAL} سطراً.`);
+  }
+}
+
+function assertTimeBudget(startedAt: number): void {
+  if (Date.now() - startedAt > MAX_EXCEL_PARSE_MS) {
+    throw new Error('استغرق تحليل ملف Excel وقتاً طويلاً وتم إيقافه. جرّب ملفاً أصغر.');
+  }
+}
 
 function validateExcelFile(file: File): void {
   const fileName = file.name.toLowerCase();
@@ -243,6 +270,9 @@ export async function parseDigitizationFile(
   if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
     throw new Error('الملف فارغ أو غير صالح (لا توجد أوراق عمل).');
   }
+  assertSheetBudget(workbook.SheetNames.length);
+  const parseStartedAt = Date.now();
+  let totalRowsSeen = 0;
 
   const parsedClasses: ParsedClassData[] = [];
   let detectedSchoolName = '';
@@ -262,6 +292,10 @@ export async function parseDigitizationFile(
     });
 
     if (!data || data.length === 0) continue;
+
+    totalRowsSeen += data.length;
+    assertRowBudget(totalRowsSeen);
+    assertTimeBudget(parseStartedAt);
 
     let extractedClassName = '';
     const cols = detectSheetColumnIndices(data);

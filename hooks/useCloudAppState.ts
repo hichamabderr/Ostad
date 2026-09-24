@@ -10,6 +10,17 @@ import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
 import { applySyncOutboxEntry, clearCloudRosterData, loadCoreState, resetCloudWorkspace, SyncConflictError } from '@/lib/supabase/core-sync';
 import { commitRosterImportBatch, type RosterImportClass, type RosterImportStudent } from '@/lib/supabase/roster-import';
 import { flushMemorandaOutbox } from '@/lib/supabase/memoranda-storage';
+
+/** Quiet period before a burst of realtime events triggers one workspace load. */
+const REALTIME_REFRESH_COALESCE_MS = 250;
+import { createCoalescer } from '@/lib/coalescer';
+import {
+  SYNCHRONIZED_TABLES,
+  isSelfAuthoredChange,
+  nextRevisionFloor,
+  shouldApplyRemoteRefresh,
+  shouldFlushOnBackground,
+} from '@/lib/realtime-guard';
 import {
   SYNCHRONIZED_TABLES,
   isSelfAuthoredChange,
@@ -135,13 +146,32 @@ export function isAuthenticatedOwner(authenticatedUserId: string | undefined, ow
   return authenticatedUserId === ownerId;
 }
 
+/**
+ * `auth.getUser()` round-trips to Supabase. It used to run on every flush, every realtime
+ * refresh and every retry, which dominated the request budget on a busy device for a value
+ * that changes only on sign-in/sign-out. Cached briefly; `forgetAuthCheck()` clears it on
+ * auth events.
+ */
+const AUTH_CHECK_TTL_MS = 30_000;
+let authCheckCache: { ownerId: string; at: number; ok: boolean } | null = null;
+
+export function forgetAuthCheck(): void {
+  authCheckCache = null;
+}
+
 async function hasAuthenticatedOwner(
   client: ReturnType<typeof createSupabaseBrowserClient>,
   ownerId: string,
 ): Promise<boolean> {
   if (!client) return false;
+  const now = Date.now();
+  if (authCheckCache && authCheckCache.ownerId === ownerId && now - authCheckCache.at < AUTH_CHECK_TTL_MS) {
+    return authCheckCache.ok;
+  }
   const { data, error } = await client.auth.getUser();
-  return !error && isAuthenticatedOwner(data.user?.id, ownerId);
+  const ok = !error && isAuthenticatedOwner(data.user?.id, ownerId);
+  authCheckCache = { ownerId, at: now, ok };
+  return ok;
 }
 
 export async function flushSyncOutbox(
@@ -217,6 +247,10 @@ export function useCloudAppState(user: User | null) {
   const [conflicts, setConflicts] = useState<SyncConflictDescriptor[]>([]);
   const cloudStatusRef = useRef<CloudSyncStatus>(cloudStatus);
   const [localStorageError, setLocalStorageError] = useState<string | null>(null);
+  // Sync panel data. `pendingCount` mirrors the durable outbox (not a render-time guess), and
+  // `lastSyncedAt` records the last moment the queue was observed empty.
+  const [pendingCount, setPendingCount] = useState(0);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const cloudReady = !user || cloudStatus !== 'loading';
   const syncingRef = useRef(false);
   const pendingSaveTimerRef = useRef<number | null>(null);
@@ -225,9 +259,32 @@ export function useCloudAppState(user: User | null) {
   const lastSyncedStateRef = useRef<AppState | null>(null);
   const revisionRef = useRef(0);
   const updatedAtRef = useRef(new Date(0).toISOString());
+<<<<<<< ours
   // Incremented synchronously on every user edit. A Realtime refresh captures it before its
   // fetch and refuses to apply a response if it moved meanwhile (the clobber race).
   const localEditSeqRef = useRef(0);
+||||||| base
+=======
+  // Incremented synchronously on every user edit. A Realtime refresh captures it before its
+  // fetch and refuses to apply a response if it moved meanwhile (the clobber race).
+  const localEditSeqRef = useRef(0);
+
+  /** Re-reads the durable queue and records the last time it was empty. */
+  const refreshSyncStatus = async (): Promise<number> => {
+    if (!user) {
+      setPendingCount(0);
+      return 0;
+    }
+    try {
+      const count = (await listSyncOutbox(user.id)).length;
+      setPendingCount(count);
+      if (count === 0) setLastSyncedAt(new Date().toISOString());
+      return count;
+    } catch {
+      return pendingCount;
+    }
+  };
+>>>>>>> theirs
 
   const registerConflict = async (error: unknown): Promise<void> => {
     if (!(error instanceof SyncConflictError) || !user) return;
@@ -345,6 +402,7 @@ export function useCloudAppState(user: User | null) {
         setState(remoteState);
         void saveAppStateCache(remoteState, user.id);
         setCloudStatus('ready');
+        void refreshSyncStatus();
       } catch (error) {
         if (!active) return;
         if (isLocalOnlyCloudError(error)) {
@@ -396,6 +454,7 @@ export function useCloudAppState(user: User | null) {
     let active = true;
     const { data: authListener } = client.auth.onAuthStateChange((event) => {
       if (event !== 'SIGNED_OUT') return;
+      forgetAuthCheck();
       active = false;
       saveGenerationRef.current += 1;
       if (pendingSaveTimerRef.current !== null && pendingSaveTimerRef.current !== -1) {
@@ -409,6 +468,7 @@ export function useCloudAppState(user: User | null) {
       setConflicts([]);
     });
 
+<<<<<<< ours
     /** Whether the fetched state may still replace the local one (see realtime-guard). */
     const refreshAllowed = async (expectedGeneration: number, expectedEditSeq: number) => shouldApplyRemoteRefresh({
       active,
@@ -420,6 +480,31 @@ export function useCloudAppState(user: User | null) {
       localEditsDuringFetch: localEditSeqRef.current - expectedEditSeq,
     });
 
+||||||| base
+=======
+    /** Collapses a burst of row-level events into one workspace load. */
+    const refreshCoalescer = createCoalescer(REALTIME_REFRESH_COALESCE_MS, () => {
+      void refreshRemoteState().catch((error) => {
+        if (isLocalOnlyCloudError(error)) {
+          setCloudStatus('local-only');
+          return;
+        }
+        console.error('Realtime sync failed:', describeCloudError(error).message);
+      });
+    });
+
+    /** Whether the fetched state may still replace the local one (see realtime-guard). */
+    const refreshAllowed = async (expectedGeneration: number, expectedEditSeq: number) => shouldApplyRemoteRefresh({
+      active,
+      authenticated: true,
+      syncing: syncingRef.current,
+      pendingSaveScheduled: pendingSaveTimerRef.current !== null,
+      pendingOutboxCount: (await listSyncOutbox(user.id)).length,
+      generationChanged: saveGenerationRef.current !== expectedGeneration,
+      localEditsDuringFetch: localEditSeqRef.current - expectedEditSeq,
+    });
+
+>>>>>>> theirs
     const refreshRemoteState = async () => {
       const expectedGeneration = saveGenerationRef.current;
       const expectedEditSeq = localEditSeqRef.current;
@@ -449,6 +534,7 @@ export function useCloudAppState(user: User | null) {
           ? { filter: `id=eq.${user.id}` }
           : { filter: `owner_id=eq.${user.id}` }),
       }, (payload) => {
+<<<<<<< ours
         // Our own writes echo back on this channel. Refreshing for them is wasted work, and
         // the fetch would race the in-memory state the user has already moved past.
         if (isSelfAuthoredChange(payload, getSyncDeviceId())) return;
@@ -459,6 +545,24 @@ export function useCloudAppState(user: User | null) {
           }
           console.error(`Realtime ${table} sync failed:`, describeCloudError(error).message);
         });
+||||||| base
+        const newRecord = payload.new as { sync_device_id?: string } | null;
+        if (newRecord?.sync_device_id && newRecord.sync_device_id === getSyncDeviceId()) {
+          return;
+        }
+        void refreshRemoteState().catch((error) => {
+          if (isLocalOnlyCloudError(error)) {
+            setCloudStatus('local-only');
+            return;
+          }
+          console.error(`Realtime ${table} sync failed:`, describeCloudError(error).message);
+        });
+=======
+        // Our own writes echo back on this channel. Refreshing for them is wasted work, and
+        // the fetch would race the in-memory state the user has already moved past.
+        if (isSelfAuthoredChange(payload, getSyncDeviceId())) return;
+        refreshCoalescer.schedule();
+>>>>>>> theirs
       });
     }
     channel = channel.subscribe((status) => {
@@ -467,6 +571,7 @@ export function useCloudAppState(user: User | null) {
 
     return () => {
       active = false;
+      refreshCoalescer.cancel();
       authListener.subscription.unsubscribe();
       void client.removeChannel(channel);
     };
@@ -536,6 +641,7 @@ export function useCloudAppState(user: User | null) {
         })
         .finally(() => {
           if (pendingSaveTimerRef.current === -1) pendingSaveTimerRef.current = null;
+          void refreshSyncStatus();
         });
     }, 300);
     pendingSaveTimerRef.current = timer;
@@ -595,13 +701,18 @@ export function useCloudAppState(user: User | null) {
       void registerConflict(error);
       console.error('Cloud sync retry failed:', message);
     }, true);
-    if (!flushed || (await listSyncOutbox(user.id)).length > 0) return;
+    if (!flushed || (await listSyncOutbox(user.id)).length > 0) {
+      void refreshSyncStatus();
+      return;
+    }
     setCloudStatus('ready');
     setSyncError(null);
+    setLastSyncedAt(new Date().toISOString());
     try {
       const remoteState = await loadCoreState(client, latestStateRef.current);
       latestStateRef.current = remoteState;
       lastSyncedStateRef.current = remoteState;
+<<<<<<< ours
       revisionRef.current = nextRevisionFloor(revisionRef.current, remoteState.cloudRevision);
       setState(remoteState);
       void saveAppStateCache(remoteState, user.id);
@@ -722,6 +833,131 @@ export function useCloudAppState(user: User | null) {
       const remoteState = await loadCoreState(client, getEmptyState(), { pendingRecordIds: new Set() });
       latestStateRef.current = remoteState;
       lastSyncedStateRef.current = remoteState;
+||||||| base
+=======
+      revisionRef.current = nextRevisionFloor(revisionRef.current, remoteState.cloudRevision);
+      setState(remoteState);
+      void saveAppStateCache(remoteState, user.id);
+    } catch (error) {
+      console.warn('Post-sync retry refresh warning:', describeCloudError(error).message);
+    }
+  };
+
+  /** Number of outbox entries still waiting for acknowledgment (0 = nothing pending). */
+  const countPendingOperations = async (): Promise<number> => {
+    if (!user) return 0;
+    try {
+      return (await listSyncOutbox(user.id)).length;
+    } catch {
+      return 0;
+    }
+  };
+
+  /**
+   * Force-flush the outbox once (used before signing out). Returns whether the queue is
+   * empty afterwards; never throws, because the caller must still be able to sign out.
+   */
+  const flushOutboxNow = async (): Promise<boolean> => {
+    if (!user) return true;
+    const client = createSupabaseBrowserClient();
+    if (!client) return false;
+    try {
+      await flushSyncOutbox(client, user.id, syncingRef, (error) => {
+        console.warn('Sign-out flush warning:', describeCloudError(error).message);
+      }, true);
+      const remaining = (await listSyncOutbox(user.id)).length;
+      setPendingCount(remaining);
+      return remaining === 0;
+    } catch (error) {
+      console.warn('Sign-out flush failed:', describeCloudError(error).message);
+      return false;
+    }
+  };
+
+  // Durability when the tab is closed or backgrounded. The debounced save holds up to 300ms
+  // of edits in memory only, so a tab that dies inside that window used to lose them. Here the
+  // delta is written to the outbox first (IndexedDB, survives the unload) and only then is one
+  // best-effort flush attempted — the browser may still kill the page mid-request, but the
+  // work is already queued and will be retried on the next start.
+  useEffect(() => {
+    if (!user || typeof window === 'undefined') return;
+
+    const persistPendingWork = () => {
+      const scheduled = pendingSaveTimerRef.current !== null && pendingSaveTimerRef.current !== -1;
+      void (async () => {
+        try {
+          if (scheduled) {
+            window.clearTimeout(pendingSaveTimerRef.current as number);
+            pendingSaveTimerRef.current = null;
+            const client = createSupabaseBrowserClient();
+            // Without a synced baseline there is no meaningful delta to queue; the initial
+            // load owns the state in that case, so only the flush below is attempted.
+            if (client && lastSyncedStateRef.current && (await hasAuthenticatedOwner(client, user.id))) {
+              // The cancelled timer will never run, so take over its job with the freshest
+              // state and invalidate any in-flight save that still holds an older snapshot.
+              saveGenerationRef.current += 1;
+              revisionRef.current = Math.max(
+                revisionRef.current + 1,
+                nextRevisionFloor(latestStateRef.current.cloudRevision, lastSyncedStateRef.current?.cloudRevision),
+              );
+              updatedAtRef.current = new Date().toISOString();
+              await enqueueSyncDelta(
+                user.id,
+                lastSyncedStateRef.current,
+                latestStateRef.current,
+                revisionRef.current,
+                updatedAtRef.current,
+              );
+            }
+          }
+          const pendingOutboxCount = (await listSyncOutbox(user.id)).length;
+          if (!shouldFlushOnBackground({
+            pendingSaveScheduled: false,
+            pendingOutboxCount,
+            status: cloudStatusRef.current,
+          })) return;
+          await flushOutboxNow();
+        } catch (error) {
+          console.warn('Background persistence warning:', describeCloudError(error).message);
+        }
+      })();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') persistPendingWork();
+    };
+    window.addEventListener('pagehide', persistPendingWork);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('pagehide', persistPendingWork);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  // Scoped to the authenticated user; the handler reads the live refs, not render values.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  /**
+   * Settings escape hatch: drop unacknowledged local operations and reload the workspace
+   * from the cloud. The user confirms this explicitly because queued edits are discarded.
+   */
+  const resyncFromCloud = async (): Promise<void> => {
+    if (!user) throw new Error('لا يمكن إعادة المزامنة دون تسجيل الدخول.');
+    const client = createSupabaseBrowserClient();
+    if (!client) throw new Error('لا يمكن إعادة المزامنة دون اتصال بالخادم السحابي.');
+
+    saveGenerationRef.current += 1;
+    if (pendingSaveTimerRef.current !== null && pendingSaveTimerRef.current !== -1) {
+      window.clearTimeout(pendingSaveTimerRef.current);
+      pendingSaveTimerRef.current = null;
+    }
+    setCloudStatus('loading');
+    setSyncError(null);
+    try {
+      await clearSyncOutbox(user.id);
+      const remoteState = await loadCoreState(client, getEmptyState(), { pendingRecordIds: new Set() });
+      latestStateRef.current = remoteState;
+      lastSyncedStateRef.current = remoteState;
+>>>>>>> theirs
       if (typeof remoteState.cloudRevision === 'number' && remoteState.cloudRevision > revisionRef.current) {
         revisionRef.current = remoteState.cloudRevision;
       }
@@ -1100,9 +1336,20 @@ export function useCloudAppState(user: User | null) {
     syncError,
     localStorageError,
     retrySync,
+<<<<<<< ours
     countPendingOperations,
     flushOutboxNow,
     resyncFromCloud,
+||||||| base
+=======
+    countPendingOperations,
+    pendingCount,
+    lastSyncedAt,
+    refreshSyncStatus,
+    syncDeviceId: user ? getSyncDeviceId() : null,
+    flushOutboxNow,
+    resyncFromCloud,
+>>>>>>> theirs
     conflicts,
     resolveConflictKeepRemote,
     resolveConflictKeepLocal,

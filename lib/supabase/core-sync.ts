@@ -4,6 +4,12 @@ import type { ClassLessonProgress, ClassRoom, SessionRecord, Student, StudentGra
 import type { Database } from './database.types';
 import { getWeeklyHours } from '@/lib/curriculum-data';
 import { enqueueSyncState, type SyncEntity, type SyncOperation, type SyncOutboxEntry } from '@/lib/sync-outbox';
+import {
+  BEHAVIOR_FIELDS,
+  reconcileEntityList,
+  reconcileSessionMarks,
+  type ReconciliationContext,
+} from '@/lib/sync-reconcile';
 import { stableUuid } from './migrate-local-state';
 import { normalizeDateToIso, normalizeTime } from '@/lib/date-utils';
 
@@ -316,15 +322,31 @@ export async function loadCoreState(
     }
     const by = (entity: SyncEntity) => (results.find(([key]) => key === entity)?.[1].data || []);
 
+<<<<<<< ours
     /**
      * Supabase is the source of truth: after a successful load the remote list wins.
      * A local record is kept only when the outbox still holds unacknowledged work for
      * it (offline edits) and no tombstone — local or server — marks it as deleted.
      */
+||||||| base
+=======
+    /**
+     * Every merge decision goes through the shared seam (lib/sync-reconcile.ts) so the
+     * initial load, the Realtime refresh, the retry path and a full re-sync cannot drift
+     * apart: remote wins, and a local row survives only with proven unsynced work.
+     */
+    const reconciliation: ReconciliationContext = {
+      cloudIdFor: (entity, localId) => getCloudRecordId(userId, entity, localId),
+      pendingRecordIds,
+      deletedRecordIds: localState.deletedRecordIds,
+      tombstonedKeys,
+    };
+>>>>>>> theirs
     const retainLocal = <T extends { id: string }>(
       entity: SyncEntity,
       remoteItems: T[],
       localItems: T[] | undefined,
+<<<<<<< ours
     ): T[] => {
       const remoteIds = new Set(remoteItems.map((item) => item.id));
       const retained = (localItems || []).filter((item) => {
@@ -336,6 +358,25 @@ export async function loadCoreState(
       });
       return retained.length > 0 ? [...remoteItems, ...retained] : remoteItems;
     };
+||||||| base
+    ): T[] => {
+      const remoteIds = new Set(remoteItems.map((item) => item.id));
+      const retained = (localItems || []).filter((item) => {
+        const cloudId = getCloudRecordId(userId, entity, item.id);
+        return (
+          !remoteIds.has(item.id) &&
+          !remoteIds.has(cloudId) &&
+          !localState.deletedRecordIds?.includes(`${entity}:${item.id}`)
+        );
+      });
+      if (remoteItems.length > 0) {
+        return retained.length > 0 ? [...remoteItems, ...retained] : remoteItems;
+      }
+      return isDemoState(localState) ? [] : retained;
+    };
+=======
+    ): T[] => reconcileEntityList(entity, remoteItems, localItems, reconciliation);
+>>>>>>> theirs
 
     const remoteClasses = by('class').map((r: any) => fromRow('class', r));
     const classes = retainLocal('class', remoteClasses, localState.classes);
@@ -383,6 +424,7 @@ export async function loadCoreState(
       .filter(Boolean);
     const sessionsById = new Map(remoteSessions.map((session) => [session.id, session]));
     const localSessionsById = new Map((localState.sessions || []).map((s) => [s.id, s]));
+<<<<<<< ours
     // Pending attendance/behaviour marks must survive the load; everything else comes
     // from the cloud so a deletion made elsewhere cannot reappear here.
     const pendingAttendance = new Map<string, Set<string>>();
@@ -444,6 +486,54 @@ export async function loadCoreState(
         }
       }
     }
+||||||| base
+    for (const session of remoteSessions) {
+      const local = localSessionsById.get(session.id);
+      session.attendance = { ...(local?.attendance || {}) };
+      session.disruptions = Array.from(new Set([...(local?.disruptions || [])]));
+      session.unwrittenLessons = Array.from(new Set([...(local?.unwrittenLessons || [])]));
+      session.poorParticipation = Array.from(new Set([...(local?.poorParticipation || [])]));
+      session.goodParticipation = Array.from(new Set([...(local?.goodParticipation || [])]));
+    }
+    for (const row of by('attendance')) {
+      const session = sessionsById.get(row.session_id);
+      if (session) {
+        session.attendance[row.student_id] = row.status === 'absent'
+          ? 'ABSENT'
+          : row.status === 'late'
+            ? 'LATE'
+            : row.status === 'excused'
+              ? 'EXCUSED'
+              : 'PRESENT';
+      }
+    }
+    const behaviorTargets: Record<string, 'disruptions' | 'unwrittenLessons' | 'poorParticipation' | 'goodParticipation'> = {
+      disruptions: 'disruptions',
+      unwrittenLessons: 'unwrittenLessons',
+      poorParticipation: 'poorParticipation',
+      goodParticipation: 'goodParticipation',
+    };
+    for (const row of by('behavior')) {
+      const session = sessionsById.get(row.session_id);
+      const target = behaviorTargets[row.behavior];
+      if (session && target) {
+        if (!session[target]?.includes(row.student_id)) {
+          (session[target] ??= []).push(row.student_id);
+        }
+      }
+    }
+=======
+    // Pending attendance/behaviour marks must survive the load; everything else comes
+    // from the cloud so a deletion made elsewhere cannot reappear here.
+    reconcileSessionMarks(
+      remoteSessions,
+      localSessionsById,
+      by('attendance') as Array<{ session_id: string; student_id: string; status?: string | null }>,
+      by('behavior') as Array<{ session_id: string; student_id: string; behavior: string }>,
+      reconciliation,
+    );
+
+>>>>>>> theirs
     const sessions = retainLocal('session', remoteSessions, localState.sessions);
 
     const remoteTimetable = by('timetable').map((r: any) => fromRow('timetable', r)).filter(Boolean);

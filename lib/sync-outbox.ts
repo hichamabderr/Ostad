@@ -44,7 +44,22 @@ export interface SyncConflictDescriptor {
 
 const OUTBOX_PREFIX = 'sanad:sync-outbox:';
 const DEVICE_ID_KEY = 'sanad:sync-device-id';
+/**
+ * Every entry id is prefixed with its owner (`<ownerId>:<deviceId>:<revision>:<updatedAt>`),
+ * so a listing for one teacher only has to *read* that teacher's keys. The previous version
+ * deserialized every entry on the device — including other accounts' blobs and old entries
+ * that still embedded a whole `AppState` — and filtered by owner afterwards in memory.
+ */
 const outboxKey = (id: string) => `${OUTBOX_PREFIX}${id}`;
+/**
+ * Entries created by much older builds used a bare uuid as the id. They are rare, are only
+ * read when present, and are identified by the absence of the `owner:device:revision:date`
+ * structure.
+ */
+const isUuidStyleOutboxKey = (key: string): boolean => {
+  if (!key.startsWith(OUTBOX_PREFIX)) return false;
+  return !key.slice(OUTBOX_PREFIX.length).includes(':');
+};
 
 export function getSyncDeviceId(): string {
   if (typeof window === 'undefined') return 'server';
@@ -432,19 +447,43 @@ export async function listPendingRecordIds(ownerId: string): Promise<Set<string>
 }
 
 export async function listSyncOutbox(ownerId: string): Promise<SyncOutboxEntry[]> {
-  const entries = await Promise.all((await keys())
-    .filter((key): key is string => typeof key === 'string' && key.startsWith(OUTBOX_PREFIX))
-    .map(key => get<SyncOutboxEntry>(key)));
-  return entries.filter((entry): entry is SyncOutboxEntry => {
-    if (!entry || entry.ownerId !== ownerId) return false;
-    // Read old entries once and convert them in memory; new entries never contain snapshots.
-    const legacy = entry as SyncOutboxEntry & { state?: AppState };
-    if (!entry.operations && legacy.state) entry.operations = getSyncOperationsForState(legacy.state);
-    if (!Array.isArray(entry.operations)) return false;
-    entry.attempts ??= 0;
-    entry.nextAttemptAt ??= entry.createdAt;
-    return true;
-  })
+  const allKeys = (await keys())
+    .filter((key): key is string => typeof key === 'string' && key.startsWith(OUTBOX_PREFIX));
+
+  // Fast path: entry ids start with the owner id, so only this teacher's blobs are read.
+  const ownerPrefix = `${OUTBOX_PREFIX}${ownerId}:`;
+  const keysToRead = allKeys.filter((key) => key.startsWith(ownerPrefix));
+
+  // Rare fallback: uuid-id entries written by very old builds, which are only adopted when
+  // the body confirms the owner (so another account's queue is still never read into ours).
+  for (const key of allKeys) {
+    if (!isUuidStyleOutboxKey(key)) continue;
+    const legacyEntry = await get<SyncOutboxEntry>(key);
+    if (!legacyEntry || legacyEntry.ownerId !== ownerId) continue;
+    const targetKey = outboxKey(legacyEntry.id);
+    if (targetKey === key) {
+      // A uuid id maps to the very key it was read from: no re-key, just read it.
+      keysToRead.push(key);
+      continue;
+    }
+    // Genuine re-key (id does not match its own key): move the blob, then read the new key.
+    await set(targetKey, legacyEntry);
+    await del(key);
+    keysToRead.push(targetKey);
+  }
+
+  const entries = await Promise.all(keysToRead.map((key) => get<SyncOutboxEntry>(key)));
+  return entries
+    .filter((entry): entry is SyncOutboxEntry => {
+      if (!entry || entry.ownerId !== ownerId) return false;
+      // Read old entries once and convert them in memory; new entries never contain snapshots.
+      const legacy = entry as SyncOutboxEntry & { state?: AppState };
+      if (!entry.operations && legacy.state) entry.operations = getSyncOperationsForState(legacy.state);
+      if (!Array.isArray(entry.operations)) return false;
+      entry.attempts ??= 0;
+      entry.nextAttemptAt ??= entry.createdAt;
+      return true;
+    })
     .sort((a, b) => a.revision - b.revision);
 }
 
@@ -463,6 +502,7 @@ export async function markSyncOutboxFailure(id: string, error: unknown): Promise
 }
 
 export async function removeSyncOutboxEntry(id: string): Promise<void> { await del(outboxKey(id)); }
+
 export async function clearSyncOutbox(ownerId: string): Promise<void> {
   await Promise.all((await listSyncOutbox(ownerId)).map(entry => removeSyncOutboxEntry(entry.id)));
 }

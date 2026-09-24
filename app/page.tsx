@@ -15,6 +15,7 @@ import { SignOutDialog } from "@/components/SignOutDialog";
 import { exportBackupJSON } from "@/lib/storage";
 import { purgeLocalUserData } from "@/lib/local-user-data";
 import { AuthGate } from "@/components/AuthGate";
+import { restoreProgressMessage } from "@/lib/sync-status";
 import { ComingSoon } from "@/components/ComingSoon";
 import { CurriculumUnit } from "@/lib/types";
 
@@ -143,7 +144,16 @@ function AppContent({
     conflicts,
     resolveConflictKeepRemote,
     resolveConflictKeepLocal,
+<<<<<<< ours
     resyncFromCloud,
+||||||| base
+=======
+    resyncFromCloud,
+    pendingCount,
+    lastSyncedAt,
+    refreshSyncStatus,
+    syncDeviceId,
+>>>>>>> theirs
   } = useCloudAppState(user);
   const [conflictBusy, setConflictBusy] = useState(false);
   const [conflictError, setConflictError] = useState<string | null>(null);
@@ -261,8 +271,15 @@ function AppContent({
               معين
             </div>
             <p className="text-xs text-[var(--text-secondary)] mt-1">
-              جاري التحميل...
+              {cloudStatus === 'loading'
+                ? restoreProgressMessage(state.classes.length, state.students.length)
+                : 'جاري التحميل...'}
             </p>
+            {(state.classes.length > 0 || state.students.length > 0) && (
+              <p className="text-[11px] text-slate-400 mt-1">
+                بياناتك محفوظة في السحابة ولا تظهر هنا إلا بعد اكتمال التحقق.
+              </p>
+            )}
           </div>
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent" />
         </div>
@@ -280,7 +297,18 @@ function AppContent({
       commitRosterImport,
       clearRosterData,
       resetWorkspace,
+<<<<<<< ours
       resyncFromCloud,
+||||||| base
+=======
+      resyncFromCloud,
+      pendingCount,
+      lastSyncedAt,
+      refreshSyncStatus,
+      syncDeviceId,
+      retrySync,
+      cloudStatus,
+>>>>>>> theirs
       conflicts,
       resolveConflictKeepRemote,
       resolveConflictKeepLocal,
