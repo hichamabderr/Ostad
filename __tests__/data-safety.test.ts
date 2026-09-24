@@ -444,6 +444,46 @@ describe('§6 delete storm: relational records follow their class', () => {
 
     expect(loaded.sessions[0].attendance).toEqual({ [studentId]: 'ABSENT' });
   });
+
+  it('survives an offline session end to end: outbox ids drive what a load keeps', async () => {
+    const classId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const studentId = 'ssssssss-ssss-4sss-8sss-ssssssssssss';
+    const sessionId = '55555555-5555-4555-8555-555555555555';
+    const offlineState = {
+      ...getEmptyState(),
+      classes: [{ id: classId, name: 'قسم أ', level: '3AS' as const, stream: '' }],
+      students: [{ id: studentId, classId, fullName: 'تلميذ 1', numberInList: 1 }],
+      sessions: [{
+        id: sessionId,
+        classId,
+        date: '2026-09-23',
+        startTime: '08:00',
+        endTime: '09:00',
+        sessionGoals: 'الوحدة 1',
+        accomplishments: '',
+        nextSteps: '',
+        teacherNotes: '',
+        attendance: { [studentId]: 'ABSENT' as const },
+        disruptions: [studentId],
+      }],
+    };
+
+    // The teacher worked offline: the engine queues the delta.
+    await enqueueSyncDelta(ownerId, getEmptyState(), offlineState, 2, '2026-09-23T18:00:00.000Z');
+    const pendingRecordIds = await listPendingRecordIds(ownerId);
+    expect(pendingRecordIds.size).toBeGreaterThan(0);
+
+    // Reloading the page before the queue drains must not lose that work, even though
+    // the cloud is still empty.
+    const { client } = makeClient({ rows: {} });
+    const loaded = await loadCoreState(client, offlineState, { pendingRecordIds });
+
+    expect(loaded.classes.map((c) => c.id)).toEqual([classId]);
+    expect(loaded.students.map((s) => s.id)).toEqual([studentId]);
+    expect(loaded.sessions.map((s) => s.id)).toEqual([sessionId]);
+    expect(loaded.sessions[0].attendance).toEqual({ [studentId]: 'ABSENT' });
+    expect(loaded.sessions[0].disruptions).toEqual([studentId]);
+  });
 });
 
 describe('§7 outbox helpers', () => {

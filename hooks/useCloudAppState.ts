@@ -18,6 +18,7 @@ import {
   clearSyncOutbox,
   markSyncOutboxFailure,
   enqueueSyncOperations,
+  listPendingRecordIds,
   type SyncConflictDescriptor,
 } from '@/lib/sync-outbox';
 import { clearMemorandaOutbox } from '@/lib/supabase/memoranda-outbox';
@@ -299,26 +300,25 @@ export function useCloudAppState(user: User | null) {
       try {
         // Read the outbox *before* loading so genuinely unsynced local work survives
         // the authoritative merge, while stale cache entries are dropped.
-        const pending = await listSyncOutbox(user.id);
-        const pendingRecordIds = new Set<string>();
-        for (const entry of pending) {
-          for (const operation of entry.operations) {
-            pendingRecordIds.add(`${operation.entity}:${operation.recordId}`);
-          }
-        }
+        let pendingRecordIds = await listPendingRecordIds(user.id);
 
         let remoteState = await loadCoreState(client, currentLocal || latestStateRef.current, { pendingRecordIds });
         if (!active) return;
 
         // Flush any pending outbox entries for this user
-        if (pending.length > 0) {
+        if (pendingRecordIds.size > 0) {
           await flushSyncOutbox(client, user.id, syncingRef, (err) => {
             console.warn('Initial pending outbox flush warning:', err);
           }, true);
           if (!active) return;
-          // Everything acknowledged: the cloud is now the only truth for this load.
-          const refreshed = await loadCoreState(client, remoteState, { pendingRecordIds: new Set() });
-          remoteState = refreshed;
+          // Recompute instead of assuming the flush drained everything: a partially
+          // failed flush must keep its local records, or the refresh would hide them.
+          pendingRecordIds = await listPendingRecordIds(user.id);
+          if (pendingRecordIds.size === 0) {
+            // Everything acknowledged: the cloud is now the only truth for this load.
+            const refreshed = await loadCoreState(client, remoteState, { pendingRecordIds });
+            remoteState = refreshed;
+          }
         }
 
         latestStateRef.current = remoteState;
