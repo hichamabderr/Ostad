@@ -265,10 +265,16 @@ Supabase، بينما تُحمّل النسخة السحابية الحالية 
 | ملفات المذكرات في الكاش | تُدمج البيانات السحابية *داخل* السجل المحلي فلا يضيع `fileStorageKey` | `core-sync.ts` | §4 |
 | إعادة المزامنة الكاملة | زر في الإعدادات (مع تأكيد) يمسح الطابور ويعيد تحميل مساحة العمل من السحابة | `hooks/useCloudAppState.ts`, `components/SettingsSanad.tsx` | §4 |
 
-### ما يزال مطلوباً (Phase 2)
+### المرحلة الثانية (Phase 2) — انتشار الحذف الفوري وحماية السباقات
 
-- `replica identity full` + الاشتراك في `sync_tombstones` حتى تصل عمليات الحذف عبر Realtime.
-- إصلاح سباق `refreshRemoteState` (فحص الجيل بعد `await`).
-- تفريغ الـ outbox عند `pagehide`/`visibilitychange` ودورة flush واحدة تملك الحالة النهائية.
-- دفعات المراجعة مع الكاش لمنع التصادمات بعد بداية دون اتصال.
-- `NetworkOnly` لطلبات Supabase في الـ service worker.
+| الحالة | السلوك | الملفات | الاختبار |
+| --- | --- | --- | --- |
+| حذف فوري عبر الأجهزة | `replica identity full` على كل جدول منشور + الاشتراك في `sync_tombstones`، فيصل حدث الحذف إلى كل تبويب مفتوح بدل انتظار إعادة التحميل | `supabase/migrations/20260924120000_realtime_delete_propagation.sql` | `__tests__/realtime-phase2.test.ts` §1 |
+| تجاهل صدى الكتابات الخاصة | تُتجاهل أحداث هذا الجهاز نفسه (`sync_device_id` و`device_id` في الشواهد) فلا يستدعي كل حفظٍ إعادة تحميل | `lib/realtime-guard.ts` (`isSelfAuthoredChange`) | §2 |
+| سباق الطباعة (Clobber) | طلب تحديث بدأ قبل تعديل المستخدم لا يكتب فوقه: عدّاد تعديلات متزامن + إعادة فحص كامل بعد `await` | `hooks/useCloudAppState.ts`, `shouldApplyRemoteRefresh` | §3 |
+| إغلاق التبويب | عند `pagehide`/`visibilitychange:hidden` تُكتب التعديلات المعلّقة في الـ outbox أولاً ثم تُحاول مزامنة واحدة سريعة | `hooks/useCloudAppState.ts` | §4 |
+| ساعة المراجعة | تُبدأ من آخر `cloudRevision` معروف ولا ترجع للخلف أبداً، فلا تُستبدل صفوف سحابية بصمت | `lib/realtime-guard.ts` (`nextRevisionFloor`) | §5 |
+| الـ service worker | `NetworkOnly` لكل طلبات Supabase ومسارات `/auth/` قبل `defaultCache`، فلا يُخدَّم صف محذوف من كاش HTTP لمدة ساعة | `app/sw.ts` | §6 |
+
+ملاحظة أمنية موثّقة في الهجرة: لا تُطبَّق سياسات RLS على أحداث DELETE، ولذلك فإن مرشّح
+الاشتراك (`owner_id=eq.<uid>`) هو ما يحدد نطاق البث، ويُطبَّق داخل الخادم قبل الإرسال.

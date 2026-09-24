@@ -46,6 +46,12 @@
   الطابور ثم يستدعي `purgeLocalUserData`، وكل مفاتيح IndexedDB الخاصة بالملفات مربوطة بالمالك
   (`sanad:pdf:<ownerId>:<unitId>`، `sanad:memoranda-outbox:<ownerId>:*`). الاختبارات الملزمة في
   `__tests__/data-safety.test.ts`، والتفاصيل في `STATE-INVENTORY.md` و`SYNC-REVIEW.md`.
+* **قواعد Realtime (إلزامية):** كل جدول في `SYNCHRONIZED_TABLES` (`lib/realtime-guard.ts`) يجب أن
+  يكون منشوراً في `supabase_realtime` ومعه `replica identity full` وإلا لن تصل أحداث الحذف
+  المفروزة بالمالك — ويمنع الاختبار `__tests__/realtime-phase2.test.ts` أي انحراف. لا تُكتب فوق
+  الحالة المحلية نتيجةً لطلب بدأ قبل تعديل المستخدم: استعمل `shouldApplyRemoteRefresh` قبل
+  وبعد `await`، و`isSelfAuthoredChange` لتجاهل صدى كتابات الجهاز نفسه. ساعة المراجعة لا ترجع
+  للخلف (`nextRevisionFloor`)، ولا يُخدَّم أي طلب Supabase من كاش الـ service worker.
 * **المزامنة وطابور Delta:** الحالات المعتمدة هي `loading` أثناء التحميل، `ready` عند اتصال
   السحابة، و`sync-pending` و`sync-failed` و`conflict` للتغييرات قيد الإرسال
   أو الفشل أو التعارض، و`local-only` عند غياب الإعداد أو تعذر المخطط/الشبكة.
