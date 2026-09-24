@@ -498,7 +498,7 @@ describe('core sync', () => {
     }));
   });
 
-  it('loadCoreState preserves local un-synced classes and students when remote is empty', async () => {
+  it('loadCoreState keeps local-only records only while the outbox still holds work for them', async () => {
     const { client } = clientFor();
     const localState = getEmptyState();
     localState.classes = [
@@ -508,11 +508,19 @@ describe('core sync', () => {
       { id: 's1', classId: 'c1', fullName: 'تلميذ تجريبي', numberInList: 1 },
     ];
 
-    const loaded = await loadCoreState(client as never, localState);
-    expect(loaded.classes).toHaveLength(1);
-    expect(loaded.classes[0].name).toBe('2 لغات 1');
-    expect(loaded.students).toHaveLength(1);
-    expect(loaded.students[0].fullName).toBe('تلميذ تجريبي');
+    // No pending operation => the (empty) cloud wins and the stale cache is dropped.
+    const withoutPending = await loadCoreState(client as never, localState);
+    expect(withoutPending.classes).toHaveLength(0);
+    expect(withoutPending.students).toHaveLength(0);
+
+    // A queued operation for those records => genuinely unsynced work is preserved.
+    const withPending = await loadCoreState(client as never, localState, {
+      pendingRecordIds: new Set(['class:c1', 'student:s1']),
+    });
+    expect(withPending.classes).toHaveLength(1);
+    expect(withPending.classes[0].name).toBe('2 لغات 1');
+    expect(withPending.students).toHaveLength(1);
+    expect(withPending.students[0].fullName).toBe('تلميذ تجريبي');
   });
 
   it('loadCoreState respects deletedRecordIds and does not retain deleted classes or students', async () => {
@@ -872,7 +880,12 @@ describe('delta sync engine', () => {
       }],
     };
 
-    const loaded = await loadCoreState(mockClient, localState);
+    // The whole offline unit (class + its records) is still pending in the outbox.
+    const loaded = await loadCoreState(mockClient, localState, {
+      pendingRecordIds: new Set([
+        'class:c1', 'session:s1', 'grade:g1', 'timetable:tt1', 'lessonProgress:lp1',
+      ]),
+    });
     expect(loaded.sessions).toHaveLength(1);
     expect(loaded.sessions[0].id).toBe('s1');
     expect(loaded.grades).toHaveLength(1);

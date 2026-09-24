@@ -2,7 +2,7 @@
 
 import { showToast } from '@/components/Toast';
 import { useAppState } from '@/hooks/app-state-context';
-import { binaryKeyForPdf, deleteBinaryFile, loadBinaryFile, saveBinaryFile } from '@/lib/binary-storage';
+import { binaryKeyForPdf, deleteBinaryFile, loadPdfBinary, savePdfBinary } from '@/lib/binary-storage';
 import { deleteTeacherMemorandum, getMemorandumUrl, uploadTeacherMemorandum } from '@/lib/supabase/memoranda-storage';
 import { cancelMemorandaUpload } from '@/lib/supabase/memoranda-outbox';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -45,7 +45,7 @@ export const LessonPreparation: React.FC<LessonPreparationProps> = ({
   initialUnit,
   initialTab
 }) => {
-  const { state, updateStateAndWait } = useAppState();
+  const { state, updateStateAndWait, ownerId } = useAppState();
   const allUnits = useMemo(() => getMergedCurriculumUnits(state.customUnits), [state.customUnits]);
   const [curriculumLoaded, setCurriculumLoaded] = useState(false);
 
@@ -106,8 +106,9 @@ export const LessonPreparation: React.FC<LessonPreparationProps> = ({
 
   // Current attached PDF: local bundled memorandum or teacher override.
   const attachedPdf = currentUnit ? state.unitPdfFiles?.[currentUnit.id] : undefined;
+  const scopedPdfKey = currentUnit ? binaryKeyForPdf(currentUnit.id, ownerId) : undefined;
   const localPdfUrl =
-    attachedPdf?.fileStorageKey && pdfData?.key === attachedPdf.fileStorageKey
+    attachedPdf?.fileStorageKey && pdfData && (pdfData.key === attachedPdf.fileStorageKey || pdfData.key === scopedPdfKey)
       ? pdfData.url
       : attachedPdf?.fileDataUrl;
   const cloudPdfUrl = (cloudPdfData && currentUnit && cloudPdfData.unitId === currentUnit.id) ? cloudPdfData.url : undefined;
@@ -124,15 +125,16 @@ export const LessonPreparation: React.FC<LessonPreparationProps> = ({
 
   useEffect(() => {
     let cancelled = false;
-    const key = attachedPdf?.fileStorageKey;
-    if (!key) return;
-    void loadBinaryFile(key).then(value => {
-      if (!cancelled && value) setPdfData({ key, url: value });
+    const unitId = currentUnit?.id;
+    if (!unitId || !attachedPdf?.fileStorageKey) return;
+    // Reads the owner-scoped key first (migrating a legacy unscoped entry if needed).
+    void loadPdfBinary(unitId, ownerId).then(value => {
+      if (!cancelled && value) setPdfData({ key: binaryKeyForPdf(unitId, ownerId), url: value });
     });
     return () => {
       cancelled = true;
     };
-  }, [attachedPdf?.fileStorageKey]);
+  }, [attachedPdf?.fileStorageKey, currentUnit?.id, ownerId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -190,10 +192,10 @@ export const LessonPreparation: React.FC<LessonPreparationProps> = ({
     reader.onload = async (e) => {
       const dataUrl = e.target?.result as string;
       const fileName = file.name;
-      const storageKey = binaryKeyForPdf(currentUnit.id);
+      const storageKey = binaryKeyForPdf(currentUnit.id, ownerId);
 
       try {
-        await saveBinaryFile(storageKey, dataUrl);
+        await savePdfBinary(currentUnit.id, dataUrl, ownerId);
         setPdfData({ key: storageKey, url: dataUrl });
         const { storagePath } = await uploadTeacherMemorandum(currentUnit.id, file);
         await updateStateAndWait(prev => ({
@@ -226,7 +228,7 @@ export const LessonPreparation: React.FC<LessonPreparationProps> = ({
     if (!currentUnit || !deleteConfirmId) return;
     setDeleteConfirmId(null);
     try {
-      await cancelMemorandaUpload(currentUnit.id);
+      await cancelMemorandaUpload(ownerId ?? 'anon', currentUnit.id);
       if (attachedPdf?.cloudStoragePath) {
         await deleteTeacherMemorandum(attachedPdf.cloudStoragePath);
       }

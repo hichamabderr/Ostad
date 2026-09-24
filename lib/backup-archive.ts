@@ -1,5 +1,5 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
-import { loadBinaryFile, saveBinaryFile } from './binary-storage';
+import { binaryKeyForPdf, loadPdfBinary, savePdfBinary } from './binary-storage';
 import type { AppState } from './storage';
 
 interface PdfArchiveManifestEntry {
@@ -36,20 +36,21 @@ async function checksumForBytes(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export async function createPdfBackupArchive(state: AppState): Promise<Uint8Array> {
+export async function createPdfBackupArchive(state: AppState, ownerId?: string | null): Promise<Uint8Array> {
   const files: PdfArchiveManifestEntry[] = [];
   const archive: Record<string, Uint8Array> = {};
 
   for (const [unitId, file] of Object.entries(state.unitPdfFiles || {})) {
-    if (!file.fileStorageKey) continue;
-    const dataUrl = await loadBinaryFile(file.fileStorageKey);
+    if (!file.fileStorageKey && !file.fileDataUrl) continue;
+    // Scoped read: works for the owner-scoped key and migrates legacy unscoped entries.
+    const dataUrl = await loadPdfBinary(unitId, ownerId) ?? file.fileDataUrl;
     if (!dataUrl) continue;
     const archivePath = `pdfs/${unitId}.pdf`;
     archive[archivePath] = dataUrlToBytes(dataUrl);
     files.push({
       unitId,
       fileName: file.fileName,
-      storageKey: file.fileStorageKey,
+      storageKey: binaryKeyForPdf(unitId, ownerId),
       archivePath,
       checksum: await checksumForBytes(archive[archivePath]),
     });
@@ -66,6 +67,7 @@ export async function createPdfBackupArchive(state: AppState): Promise<Uint8Arra
 
 export async function restorePdfBackupArchive(
   archiveFile: Blob,
+  ownerId?: string | null,
 ): Promise<NonNullable<AppState['unitPdfFiles']>> {
   const files = unzipSync(new Uint8Array(await archiveFile.arrayBuffer()));
   const manifestBytes = files['manifest.json'];
@@ -82,10 +84,12 @@ export async function restorePdfBackupArchive(
     if (entry.checksum && entry.checksum !== await checksumForBytes(bytes)) {
       throw new Error(`فشل التحقق من سلامة الملف: ${entry.fileName}`);
     }
-    await saveBinaryFile(entry.storageKey, bytesToDataUrl(bytes));
+    // Always re-key for the current owner: a restored archive must never be readable by
+    // (or leak into) the account that produced it on a shared device.
+    const storageKey = await savePdfBinary(entry.unitId, bytesToDataUrl(bytes), ownerId);
     restored[entry.unitId] = {
       fileName: entry.fileName,
-      fileStorageKey: entry.storageKey,
+      fileStorageKey: storageKey,
       uploadedAt: new Date().toISOString().split('T')[0],
     };
   }

@@ -151,7 +151,7 @@ export async function flushSyncOutbox(
   let retryAt: number | null = null;
   try {
     await flushAvatarOutbox(ownerId);
-    await flushMemorandaOutbox();
+    await flushMemorandaOutbox(ownerId);
     while (true) {
       const entries = await listSyncOutbox(ownerId);
       const entry = entries[0];
@@ -297,17 +297,27 @@ export function useCloudAppState(user: User | null) {
       }
 
       try {
-        let remoteState = await loadCoreState(client, currentLocal || latestStateRef.current);
+        // Read the outbox *before* loading so genuinely unsynced local work survives
+        // the authoritative merge, while stale cache entries are dropped.
+        const pending = await listSyncOutbox(user.id);
+        const pendingRecordIds = new Set<string>();
+        for (const entry of pending) {
+          for (const operation of entry.operations) {
+            pendingRecordIds.add(`${operation.entity}:${operation.recordId}`);
+          }
+        }
+
+        let remoteState = await loadCoreState(client, currentLocal || latestStateRef.current, { pendingRecordIds });
         if (!active) return;
 
         // Flush any pending outbox entries for this user
-        const pending = await listSyncOutbox(user.id);
         if (pending.length > 0) {
           await flushSyncOutbox(client, user.id, syncingRef, (err) => {
             console.warn('Initial pending outbox flush warning:', err);
           }, true);
           if (!active) return;
-          const refreshed = await loadCoreState(client, remoteState);
+          // Everything acknowledged: the cloud is now the only truth for this load.
+          const refreshed = await loadCoreState(client, remoteState, { pendingRecordIds: new Set() });
           remoteState = refreshed;
         }
 
@@ -443,7 +453,10 @@ export function useCloudAppState(user: User | null) {
   useEffect(() => {
     if (!isMounted || !cloudReady) return;
     if (!user) return;
-    if (cloudStatus === 'local-only' || cloudStatus === 'conflict') return;
+    // An unresolved conflict must be answered by the user before more work is queued.
+    // `local-only` no longer blocks queueing: offline edits are persisted to the outbox
+    // and retried automatically instead of living only in memory.
+    if (cloudStatus === 'conflict') return;
     // Guard: do NOT trigger save if state is identical to last synced state
     if (state === lastSyncedStateRef.current) return;
 
@@ -577,6 +590,72 @@ export function useCloudAppState(user: User | null) {
     }
   };
 
+  /** Number of outbox entries still waiting for acknowledgment (0 = nothing pending). */
+  const countPendingOperations = async (): Promise<number> => {
+    if (!user) return 0;
+    try {
+      return (await listSyncOutbox(user.id)).length;
+    } catch {
+      return 0;
+    }
+  };
+
+  /**
+   * Force-flush the outbox once (used before signing out). Returns whether the queue is
+   * empty afterwards; never throws, because the caller must still be able to sign out.
+   */
+  const flushOutboxNow = async (): Promise<boolean> => {
+    if (!user) return true;
+    const client = createSupabaseBrowserClient();
+    if (!client) return false;
+    try {
+      await flushSyncOutbox(client, user.id, syncingRef, (error) => {
+        console.warn('Sign-out flush warning:', describeCloudError(error).message);
+      }, true);
+      return (await listSyncOutbox(user.id)).length === 0;
+    } catch (error) {
+      console.warn('Sign-out flush failed:', describeCloudError(error).message);
+      return false;
+    }
+  };
+
+  /**
+   * Settings escape hatch: drop unacknowledged local operations and reload the workspace
+   * from the cloud. The user confirms this explicitly because queued edits are discarded.
+   */
+  const resyncFromCloud = async (): Promise<void> => {
+    if (!user) throw new Error('لا يمكن إعادة المزامنة دون تسجيل الدخول.');
+    const client = createSupabaseBrowserClient();
+    if (!client) throw new Error('لا يمكن إعادة المزامنة دون اتصال بالخادم السحابي.');
+
+    saveGenerationRef.current += 1;
+    if (pendingSaveTimerRef.current !== null && pendingSaveTimerRef.current !== -1) {
+      window.clearTimeout(pendingSaveTimerRef.current);
+      pendingSaveTimerRef.current = null;
+    }
+    setCloudStatus('loading');
+    setSyncError(null);
+    try {
+      await clearSyncOutbox(user.id);
+      const remoteState = await loadCoreState(client, getEmptyState(), { pendingRecordIds: new Set() });
+      latestStateRef.current = remoteState;
+      lastSyncedStateRef.current = remoteState;
+      if (typeof remoteState.cloudRevision === 'number' && remoteState.cloudRevision > revisionRef.current) {
+        revisionRef.current = remoteState.cloudRevision;
+      }
+      setState(remoteState);
+      await saveAppStateCache(remoteState, user.id);
+      setLocalStorageError(null);
+      setConflicts([]);
+      setCloudStatus('ready');
+    } catch (error) {
+      const message = describeCloudError(error).message;
+      setSyncError(message);
+      setCloudStatus('sync-failed');
+      throw error;
+    }
+  };
+
   const resolveConflictKeepRemote = async (conflict: SyncConflictDescriptor): Promise<void> => {
     if (!user) throw new Error('لا يمكن حل التعارض دون تسجيل الدخول.');
     const client = createSupabaseBrowserClient();
@@ -608,7 +687,11 @@ export function useCloudAppState(user: User | null) {
     await removeSyncOutboxEntry(entry.id);
     const remoteRevision = Math.max(conflict.remoteRevision, revisionRef.current);
     revisionRef.current = remoteRevision + 1;
-    await enqueueSyncOperations(user.id, operations, revisionRef.current, new Date().toISOString());
+    // The user explicitly chose their local version: this is the only path allowed to
+    // override a deletion recorded by another device.
+    await enqueueSyncOperations(user.id, operations, revisionRef.current, new Date().toISOString(), {
+      allowTombstoneOverride: true,
+    });
     setConflicts((current) => current.filter((item) => item.outboxId !== conflict.outboxId));
     setCloudStatus('sync-pending');
     setSyncError(null);
@@ -810,9 +893,9 @@ export function useCloudAppState(user: User | null) {
       await resetCloudWorkspace(client, user.id);
       await clearSyncOutbox(user.id);
     }
-    await clearMemorandaOutbox();
+    if (user) await clearMemorandaOutbox(user.id);
     await clearAvatarOutbox();
-    await clearTeacherBinaryFiles();
+    await clearTeacherBinaryFiles(user?.id);
     await clearDashboardTasks();
     const emptyState = getEmptyState();
     await saveAppStateCache(emptyState, user?.id, { allowEmptyRoster: true });
@@ -933,6 +1016,9 @@ export function useCloudAppState(user: User | null) {
     syncError,
     localStorageError,
     retrySync,
+    countPendingOperations,
+    flushOutboxNow,
+    resyncFromCloud,
     conflicts,
     resolveConflictKeepRemote,
     resolveConflictKeepLocal,

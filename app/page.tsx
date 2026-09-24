@@ -11,6 +11,9 @@ import { SidebarSanad, SanadTab } from "@/components/SidebarSanad";
 import { TopHeaderSanad } from "@/components/TopHeaderSanad";
 import { MobileNavigation } from "@/components/MobileNavigation";
 import { SyncConflictDialog } from "@/components/SyncConflictDialog";
+import { SignOutDialog } from "@/components/SignOutDialog";
+import { exportBackupJSON } from "@/lib/storage";
+import { purgeLocalUserData } from "@/lib/local-user-data";
 import { AuthGate } from "@/components/AuthGate";
 import { ComingSoon } from "@/components/ComingSoon";
 import { CurriculumUnit } from "@/lib/types";
@@ -135,9 +138,12 @@ function AppContent({
     cloudStatus,
     syncError,
     retrySync,
+    countPendingOperations,
+    flushOutboxNow,
     conflicts,
     resolveConflictKeepRemote,
     resolveConflictKeepLocal,
+    resyncFromCloud,
   } = useCloudAppState(user);
   const [conflictBusy, setConflictBusy] = useState(false);
   const [conflictError, setConflictError] = useState<string | null>(null);
@@ -150,6 +156,49 @@ function AppContent({
   const [prepUnit, setPrepUnit] = useState<CurriculumUnit | null>(null);
   const [prepTab, setPrepTab] = useState<"card" | "pdf" | "bank">("card");
   const [selectedSessionForCahier, setSelectedSessionForCahier] = useState<string | null>(null);
+  const [signOutRequest, setSignOutRequest] = useState<{ pending: number } | null>(null);
+
+  /**
+   * Sign-out is only "clean" when everything is acknowledged: otherwise we show the
+   * pending-work dialog instead of silently dropping local changes.
+   */
+  const handleSignOutRequest = async () => {
+    const pending = await countPendingOperations();
+    if (pending === 0 && cloudStatus === "ready") {
+      await performSignOut();
+      return;
+    }
+    setSignOutRequest({ pending });
+  };
+
+  const performSignOut = async () => {
+    setSignOutRequest(null);
+    try {
+      await flushOutboxNow();
+    } catch (error) {
+      console.warn("Sign-out flush warning:", error);
+    }
+    try {
+      await purgeLocalUserData(user?.id);
+    } catch (error) {
+      console.warn("Sign-out purge warning:", error);
+    }
+    onSignOut();
+  };
+
+  const handleExportBackup = () => {
+    try {
+      const blob = new Blob([exportBackupJSON(state)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `moeen-al-oustadh-backup-${Date.now()}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Backup export failed:", error);
+    }
+  };
 
   const setCurrentTab = (tab: SanadTab) => {
     router.push(TAB_ROUTES[tab]);
@@ -224,12 +273,14 @@ function AppContent({
   return (
     <AppStateProvider value={{
       state,
+      ownerId: user?.id ?? null,
       updateState: handleUpdateState,
       updateStateAndWait,
       replaceStateFromBackup,
       commitRosterImport,
       clearRosterData,
       resetWorkspace,
+      resyncFromCloud,
       conflicts,
       resolveConflictKeepRemote,
       resolveConflictKeepLocal,
@@ -248,7 +299,7 @@ function AppContent({
         onSelectTab={setCurrentTab}
         isOpenMobile={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
-        onSignOut={onSignOut}
+        onSignOut={() => void handleSignOutRequest()}
         isCollapsed={isCollapsed}
         onToggleCollapse={() =>
           handleUpdateState((prev) => ({
@@ -415,6 +466,21 @@ function AppContent({
             setConflictError(error instanceof Error ? error.message : "تعذر حل التعارض.");
           } finally { setConflictBusy(false); }
         }}
+      />
+      <SignOutDialog
+        isOpen={Boolean(signOutRequest)}
+        pendingOperations={signOutRequest?.pending ?? 0}
+        cloudStatus={cloudStatus}
+        syncError={syncError}
+        onSyncThenSignOut={async () => {
+          const flushed = await flushOutboxNow();
+          if (!flushed) return false;
+          await performSignOut();
+          return true;
+        }}
+        onExportBackup={handleExportBackup}
+        onSignOutAnyway={() => void performSignOut()}
+        onCancel={() => setSignOutRequest(null)}
       />
       {conflictError && <div role="alert" className="fixed bottom-4 left-4 z-[10001] rounded-xl bg-rose-700 px-4 py-2 text-sm font-bold text-white">{conflictError}</div>}
     </div>

@@ -9,7 +9,34 @@ import { normalizeDateToIso, normalizeTime } from '@/lib/date-utils';
 
 type Client = SupabaseClient<Database>;
 type AnyClient = { from(table: string): any; auth: any; rpc: any; storage: any };
-export interface SyncMetadata { revision: number; updatedAt: string; deviceId: string; }
+export interface SyncMetadata {
+  revision: number;
+  updatedAt: string;
+  deviceId: string;
+  /**
+   * Only set after an explicit user decision (conflict resolution "keep local").
+   * A tombstone written by another device must never be cleared implicitly.
+   */
+  allowTombstoneOverride?: boolean;
+}
+
+/**
+ * Identifiers of records that still have pending (unacknowledged) work in the local
+ * outbox, in the `entity:recordId` form used by `SyncOperation`.
+ *
+ * These are the *only* local records `loadCoreState` is allowed to keep when the cloud
+ * does not know about them: everything else is treated as a stale cache entry.
+ */
+export type PendingRecordIds = ReadonlySet<string>;
+
+export interface LoadCoreStateOptions {
+  pendingRecordIds?: PendingRecordIds;
+}
+
+export function isPendingRecord(pendingRecordIds: PendingRecordIds | undefined, entity: SyncEntity, recordId: string): boolean {
+  return Boolean(pendingRecordIds?.has(`${entity}:${recordId}`));
+}
+
 export class SyncConflictError extends Error {
   code = 'SYNC_CONFLICT';
   constructor(public entity: SyncEntity, public recordId: string, public remoteRevision: number, public localRevision: number) {
@@ -249,11 +276,16 @@ function fromRow(entity: SyncEntity, row: any): any {
   return null;
 }
 
-export async function loadCoreState(client: Client, localState: AppState): Promise<AppState> {
+export async function loadCoreState(
+  client: Client,
+  localState: AppState,
+  options: LoadCoreStateOptions = {},
+): Promise<AppState> {
   try {
     const c = client as AnyClient;
     const userId = (await c.auth.getUser()).data.user?.id;
     if (!userId) return localState;
+    const pendingRecordIds = options.pendingRecordIds;
     const results = await Promise.all(Object.entries(tables).map(async ([entity, table]) => {
       const query = c.from(table).select('*');
       const result = entity === 'profile' ? await query.eq('id', userId) : await query.eq('owner_id', userId);
@@ -262,6 +294,19 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
     const memorandaResult = await c.from('memoranda_files').select('unit_key,file_name,storage_path,created_at,updated_at,is_bundled,deleted_at').eq('owner_id', userId).eq('is_bundled', false).is('deleted_at', null);
     if (memorandaResult.error) throw memorandaResult.error;
     for (const [, result] of results) if (result.error) throw result.error;
+
+    // Server-side deletions. A tombstone is the cloud's answer to "was this record
+    // deleted?", so it must be read before any local record is allowed to survive.
+    const tombstones = await c.from('sync_tombstones').select('entity_type,entity_id').eq('owner_id', userId);
+    if (tombstones.error) throw tombstones.error;
+    const tombstonedKeys = new Set<string>(
+      ((tombstones.data || []) as Array<{ entity_type?: string; entity_id?: string }>)
+        .filter((row) => typeof row.entity_type === 'string' && typeof row.entity_id === 'string')
+        .map((row) => `${row.entity_type}:${row.entity_id}`),
+    );
+    const isTombstoned = (entity: SyncEntity, ...ids: string[]): boolean =>
+      ids.some((id) => tombstonedKeys.has(`${entity}:${id}`));
+
     let maxRevision = 0;
     for (const [, result] of results) {
       for (const row of result.data || []) {
@@ -271,6 +316,11 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
     }
     const by = (entity: SyncEntity) => (results.find(([key]) => key === entity)?.[1].data || []);
 
+    /**
+     * Supabase is the source of truth: after a successful load the remote list wins.
+     * A local record is kept only when the outbox still holds unacknowledged work for
+     * it (offline edits) and no tombstone — local or server — marks it as deleted.
+     */
     const retainLocal = <T extends { id: string }>(
       entity: SyncEntity,
       remoteItems: T[],
@@ -279,16 +329,12 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
       const remoteIds = new Set(remoteItems.map((item) => item.id));
       const retained = (localItems || []).filter((item) => {
         const cloudId = getCloudRecordId(userId, entity, item.id);
-        return (
-          !remoteIds.has(item.id) &&
-          !remoteIds.has(cloudId) &&
-          !localState.deletedRecordIds?.includes(`${entity}:${item.id}`)
-        );
+        if (remoteIds.has(item.id) || remoteIds.has(cloudId)) return false;
+        if (localState.deletedRecordIds?.includes(`${entity}:${item.id}`)) return false;
+        if (isTombstoned(entity, cloudId, item.id)) return false;
+        return isPendingRecord(pendingRecordIds, entity, item.id);
       });
-      if (remoteItems.length > 0) {
-        return retained.length > 0 ? [...remoteItems, ...retained] : remoteItems;
-      }
-      return isDemoState(localState) ? [] : retained;
+      return retained.length > 0 ? [...remoteItems, ...retained] : remoteItems;
     };
 
     const remoteClasses = by('class').map((r: any) => fromRow('class', r));
@@ -318,10 +364,14 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
     }));
     const dashboardTasks = retainLocal('dashboardTask', remoteTasks, localState.dashboardTasks);
 
+    // Memoranda: cloud metadata is merged *into* the local entry so the local binary
+    // reference (`fileStorageKey`) survives a reload; it is never dropped by the merge.
+    const localUnitPdfFiles = localState.unitPdfFiles || {};
     const remoteUnitPdfFiles = Object.fromEntries(
       (memorandaResult.data || [])
         .filter((row: any) => typeof row.unit_key === 'string' && typeof row.storage_path === 'string')
         .map((row: any) => [row.unit_key, {
+          ...localUnitPdfFiles[row.unit_key],
           fileName: row.file_name,
           cloudStoragePath: row.storage_path,
           uploadedAt: (row.updated_at || row.created_at || new Date().toISOString()).slice(0, 10),
@@ -333,17 +383,42 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
       .filter(Boolean);
     const sessionsById = new Map(remoteSessions.map((session) => [session.id, session]));
     const localSessionsById = new Map((localState.sessions || []).map((s) => [s.id, s]));
+    // Pending attendance/behaviour marks must survive the load; everything else comes
+    // from the cloud so a deletion made elsewhere cannot reappear here.
+    const pendingAttendance = new Map<string, Set<string>>();
+    const pendingBehaviors = new Map<string, Set<string>>();
     for (const session of remoteSessions) {
       const local = localSessionsById.get(session.id);
-      session.attendance = { ...(local?.attendance || {}) };
-      session.disruptions = Array.from(new Set([...(local?.disruptions || [])]));
-      session.unwrittenLessons = Array.from(new Set([...(local?.unwrittenLessons || [])]));
-      session.poorParticipation = Array.from(new Set([...(local?.poorParticipation || [])]));
-      session.goodParticipation = Array.from(new Set([...(local?.goodParticipation || [])]));
+      session.attendance = {};
+      session.disruptions = [];
+      session.unwrittenLessons = [];
+      session.poorParticipation = [];
+      session.goodParticipation = [];
+      if (!local) continue;
+      const attendanceIds = new Set<string>();
+      for (const [studentId, status] of Object.entries(local.attendance || {})) {
+        if (isPendingRecord(pendingRecordIds, 'attendance', `${session.id}:${studentId}`)) {
+          session.attendance[studentId] = status;
+          attendanceIds.add(studentId);
+        }
+      }
+      const behaviorIds = new Set<string>();
+      for (const behavior of ['disruptions', 'unwrittenLessons', 'poorParticipation', 'goodParticipation'] as const) {
+        const targetList = session[behavior];
+        if (!targetList) continue;
+        for (const studentId of local[behavior] || []) {
+          if (isPendingRecord(pendingRecordIds, 'behavior', `${session.id}:${studentId}:${behavior}`)) {
+            targetList.push(studentId);
+            behaviorIds.add(`${studentId}:${behavior}`);
+          }
+        }
+      }
+      pendingAttendance.set(session.id, attendanceIds);
+      pendingBehaviors.set(session.id, behaviorIds);
     }
     for (const row of by('attendance')) {
       const session = sessionsById.get(row.session_id);
-      if (session) {
+      if (session && !pendingAttendance.get(session.id)?.has(row.student_id)) {
         session.attendance[row.student_id] = row.status === 'absent'
           ? 'ABSENT'
           : row.status === 'late'
@@ -363,6 +438,7 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
       const session = sessionsById.get(row.session_id);
       const target = behaviorTargets[row.behavior];
       if (session && target) {
+        if (pendingBehaviors.get(session.id)?.has(`${row.student_id}:${row.behavior}`)) continue;
         if (!session[target]?.includes(row.student_id)) {
           (session[target] ??= []).push(row.student_id);
         }
@@ -428,7 +504,13 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
       lessonProgress: classes.length > 0 ? lessonProgress.filter((p: ClassLessonProgress) => classMatches(p.classId)) : [],
       customUnits, lessonPlans, dashboardTasks,
       unitPdfFiles: {
-        ...(localState.unitPdfFiles || {}),
+        // Keep a local-only attachment only while its binary is still on this device,
+        // so a PDF cannot be shown as attached when its file is gone.
+        ...Object.fromEntries(
+          Object.entries(localUnitPdfFiles).filter(([, entry]) =>
+            Boolean(entry?.fileStorageKey || entry?.fileDataUrl),
+          ),
+        ),
         ...remoteUnitPdfFiles,
       },
       activeClassId,
@@ -629,8 +711,12 @@ async function applyOperationOnce(client: AnyClient, ownerId: string, workspace:
       .eq('entity_id', recordId)
       .maybeSingle();
     if (tombstone.error) throw tombstone.error;
-    if (tombstone.data && Number(tombstone.data.revision) >= metadata.revision && tombstone.data.device_id !== metadata.deviceId) {
-      throw new SyncConflictError(operation.entity, operation.recordId, Number(tombstone.data.revision), metadata.revision);
+    // A deletion is absolute: it can only be undone by this device (undo of its own
+    // delete) or by an explicit user decision carried on the entry. A newer local
+    // revision never silently resurrects a record another device deleted.
+    const tombstoneFromOtherDevice = Boolean(tombstone.data && tombstone.data.device_id !== metadata.deviceId);
+    if (tombstoneFromOtherDevice && !metadata.allowTombstoneOverride) {
+      throw new SyncConflictError(operation.entity, operation.recordId, Number(tombstone.data!.revision ?? 0), metadata.revision);
     }
 
     const rowQuery = client.from(table);
@@ -652,13 +738,23 @@ async function applyOperationOnce(client: AnyClient, ownerId: string, workspace:
   const existing = await client.from(table).select('revision,sync_revision,updated_by,sync_device_id').eq('id', recordId).eq('owner_id', ownerId).eq('workspace_id', workspace).maybeSingle();
   if (existing.error) throw existing.error;
   await conflictIfStale(existing.data);
+  const existingTombstone = await client.from('sync_tombstones')
+    .select('revision,device_id')
+    .eq('workspace_id', workspace)
+    .eq('owner_id', ownerId)
+    .eq('entity_type', operation.entity)
+    .eq('entity_id', recordId)
+    .maybeSingle();
+  if (existingTombstone.error) throw existingTombstone.error;
   const tombstone = await client.from('sync_tombstones').upsert({
     workspace_id: workspace,
     owner_id: ownerId,
     entity_type: operation.entity,
     entity_id: recordId,
-    revision: metadata.revision,
-    device_id: metadata.deviceId,
+    revision: Math.max(Number(existingTombstone.data?.revision ?? 0), metadata.revision),
+    // Never claim another device's deletion for this one: the tombstone keeps pointing
+    // at whoever deleted the record, so it cannot be undone silently later.
+    device_id: existingTombstone.data?.device_id ?? metadata.deviceId,
   }, { onConflict: 'workspace_id,entity_type,entity_id' });
   if (tombstone.error) throw tombstone.error;
   const result = await client.from(table).delete().eq('id', recordId).eq('owner_id', ownerId).eq('workspace_id', workspace);
@@ -703,6 +799,7 @@ export async function applySyncOutboxEntry(client: Client, ownerId: string, entr
       revision: entry.revision,
       updatedAt: entry.updatedAt,
       deviceId,
+      allowTombstoneOverride: entry.allowTombstoneOverride === true,
     };
 
     for (const operation of entry.operations) {
