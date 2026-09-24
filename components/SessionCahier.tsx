@@ -60,29 +60,29 @@ const FormattingBar: React.FC<FormattingBarProps> = ({ setter }) => {
     <div className="flex items-center gap-1 bg-slate-50 border-b border-slate-200 px-2 py-1.5 rounded-t-xl text-slate-600 text-xs overflow-x-auto scrollbar-none">
       <button
         type="button" onClick={() => handleApply('**', '**')}
-        className="min-h-[36px] px-2.5 py-1 rounded-lg hover:bg-slate-200 font-bold flex items-center gap-1 cursor-pointer transition-colors shrink-0" title="نص عريض" >
+        className="min-h-[40px] min-w-[40px] px-2.5 py-1 rounded-lg hover:bg-slate-200 font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors shrink-0" title="نص عريض" >
         <Bold className="w-3.5 h-3.5" />
         <span className="text-xs">عريض</span>
       </button>
       <button
         type="button" onClick={() => handleApply('﴿ ', ' ﴾')}
-        className="min-h-[36px] px-2.5 py-1 rounded-lg hover:bg-[var(--primary-soft)] text-[var(--primary)] font-bold cursor-pointer transition-colors shrink-0 text-xs" title="إدراج قوس آية قرآنية" >
+        className="min-h-[40px] min-w-[40px] px-2.5 py-1 rounded-lg hover:bg-[var(--primary-soft)] text-[var(--primary)] font-bold cursor-pointer transition-colors shrink-0 text-xs" title="إدراج قوس آية قرآنية" >
         ﴿ آية ﴾
       </button>
       <button
         type="button" onClick={() => handleApply('« ', ' »')}
-        className="min-h-[36px] px-2.5 py-1 rounded-lg hover:bg-blue-100 text-blue-800 font-bold cursor-pointer transition-colors shrink-0 text-xs" title="إدراج قوس حديث نبوي" >
+        className="min-h-[40px] min-w-[40px] px-2.5 py-1 rounded-lg hover:bg-blue-100 text-blue-800 font-bold cursor-pointer transition-colors shrink-0 text-xs" title="إدراج قوس حديث نبوي" >
         « حديث »
       </button>
       <button
         type="button" onClick={() => handleApply('• ')}
-        className="min-h-[36px] px-2.5 py-1 rounded-lg hover:bg-slate-200 flex items-center gap-1 cursor-pointer transition-colors shrink-0" title="نقطة تعداد" >
+        className="min-h-[40px] min-w-[40px] px-2.5 py-1 rounded-lg hover:bg-slate-200 flex items-center justify-center gap-1 cursor-pointer transition-colors shrink-0" title="نقطة تعداد" >
         <List className="w-3.5 h-3.5" />
         <span className="text-xs">نقطة</span>
       </button>
       <button
         type="button" onClick={() => handleApply('1. ')}
-        className="min-h-[36px] px-2.5 py-1 rounded-lg hover:bg-slate-200 flex items-center gap-1 cursor-pointer transition-colors shrink-0" title="ترقيم" >
+        className="min-h-[40px] min-w-[40px] px-2.5 py-1 rounded-lg hover:bg-slate-200 flex items-center justify-center gap-1 cursor-pointer transition-colors shrink-0" title="ترقيم" >
         <ListOrdered className="w-3.5 h-3.5" />
         <span className="text-xs">ترقيم</span>
       </button>
@@ -712,7 +712,7 @@ ${sessionNotes}
             </div>
 
             {/* Submit button */}
-            <div className="pt-2 flex justify-stretch sm:justify-end">
+            <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-20 -mx-5 border-t border-[var(--border-default)] bg-[var(--bg-surface)]/95 px-5 py-3 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0">
               <button
                 onClick={handleSaveSession}
                 className="w-full sm:w-auto min-h-11 flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-xs font-black shadow-md cursor-pointer transition-all" id="btn-save-session-record" >

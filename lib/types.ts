@@ -93,6 +93,12 @@ export interface ClassRoom {
   color?: string;
 }
 
+/** Compact, synchronized fields used by the session editor. */
+export interface SessionEditorContract {
+  summary: string;
+  assignments: string;
+}
+
 export interface TimetableSlot {
   id: string;
   classId: string;
@@ -160,6 +166,9 @@ export interface SessionRecord {
   sessionGoals: string; // أهداف الحصة
   accomplishments: string; // ما تم إنجازه
   nextSteps: string; // ما يحتاج معالجة في الحصة القادمة
+  /** Compact editor aliases retained alongside the legacy notebook fields. */
+  summary?: string;
+  assignments?: string;
   teacherNotes: string; // ملاحظات الأستاذ
   notes?: string; // دفتر الملاحظات الموحد
   // Legacy notebook fields kept for backward compatibility with older backups.

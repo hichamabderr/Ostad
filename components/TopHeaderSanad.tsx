@@ -2,7 +2,7 @@
 
 import { AppState } from "@/lib/storage";
 import { useAppState } from '@/hooks/app-state-context';
-import { Calendar, Menu, Search } from "lucide-react";
+import { AlertCircle, Calendar, CheckCircle2, Cloud, Menu, RefreshCw, Search } from "lucide-react";
 import React, { useEffect } from "react";
 import { PWAInstallButton } from "./PWAInstallButton";
 import { SanadTab } from "./SidebarSanad";
@@ -16,6 +16,7 @@ interface TopHeaderSanadProps {
   cloudStatus?: CloudSyncStatus;
   syncError?: string | null;
   onRetrySync?: () => void;
+  onOpenConflict?: () => void;
 }
 
 const TAB_TITLES: Record<SanadTab, { title: string; subtitle?: string }> = {
@@ -74,6 +75,7 @@ export const TopHeaderSanad: React.FC<TopHeaderSanadProps> = ({
   cloudStatus = "ready",
   syncError,
   onRetrySync,
+  onOpenConflict,
 }) => {
   const { state, updateState: onUpdateState } = useAppState();
   const currentInfo = TAB_TITLES[currentTab] || { title: "معين" };
@@ -196,11 +198,19 @@ export const TopHeaderSanad: React.FC<TopHeaderSanadProps> = ({
 
           <PWAInstallButton />
           <div
-            className={`flex items-center gap-1.5 text-[10px] font-bold ${syncStatus.className}`}
+            className={`flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-bold ${syncStatus.className} border-current/20 bg-[var(--bg-surface-subtle)]`}
             title={syncError || syncStatus.label}
             aria-live="polite">
-            <span className="h-2 w-2 rounded-full bg-current shrink-0" aria-hidden="true" />
+            {cloudStatus === "ready" ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> :
+              cloudStatus === "sync-pending" || cloudStatus === "loading" ? <RefreshCw className="h-3.5 w-3.5 shrink-0 animate-spin" /> :
+              cloudStatus === "sync-failed" || cloudStatus === "conflict" ? <AlertCircle className="h-3.5 w-3.5 shrink-0" /> :
+              <Cloud className="h-3.5 w-3.5 shrink-0" />}
             <span className="hidden sm:inline">{syncStatus.label}</span>
+            {cloudStatus === "conflict" && onOpenConflict && (
+              <button type="button" onClick={onOpenConflict} className="underline underline-offset-2 shrink-0 cursor-pointer">
+                مراجعة
+              </button>
+            )}
             {(cloudStatus === "sync-failed" || cloudStatus === "local-only") && onRetrySync && (
               <button
                 type="button"

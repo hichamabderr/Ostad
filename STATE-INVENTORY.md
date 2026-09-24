@@ -57,12 +57,12 @@ Supabase، بينما تُحمّل النسخة السحابية الحالية 
 
 | الحالة | جدول/خدمة Supabase | الحذف/التعارض |
 | --- | --- | --- |
-| `profile` | `profiles` | metadata للمراجعة؛ الصورة تحتاج Storage/outbox؛ trigger لتحديث `sync_updated_at` |
+| `profile` | `profiles` (الأسماء العربية/الإنجليزية، البريد، الهاتف، بيانات التعيين/الميلاد/الأسرة/الجنس) | metadata للمراجعة؛ الصورة تحتاج Storage/outbox؛ trigger لتحديث `sync_updated_at` |
 | `calendarSettings`, `theme`, `dashboardStyle`, `sidebarCollapsed`, `onboardingDismissed`, `activeClassId`, `activeTrimester` | `app_settings` | revision وconflict؛ trigger خادمي موحد |
-| `classes` | `classes` | tombstone |
+| `classes` | `classes` (`color` persisted) | tombstone |
 | `students` | `students` | tombstone؛ الاستيراد الجماعي يمر عبر `import_roster_batch` مع outbox كضمان لاحق |
 | `timetable` | `timetable_slots` | tombstone؛ تغيير القسم النشط يغيّر العرض/الاختيار فقط ولا يحذف أو يعيد كتابة صفوف التوقيت |
-| `sessions` | `sessions` | tombstone؛ يرتبط بالحضور والسلوك |
+| `sessions` | `sessions` (`summary` و`assignments` لعقد محرر الحصة المختصر) | tombstone؛ يرتبط بالحضور والسلوك؛ التعديل يمر عبر نفس revision/outbox/conflict |
 | `attendance` | `attendance` | tombstone علائقي مستقل |
 | `session behaviors` | `session_behaviors` | tombstone علائقي مستقل |
 
@@ -238,4 +238,3 @@ Supabase، بينما تُحمّل النسخة السحابية الحالية 
   - **ثبات حفظ النقاط والتقييم ومنع سباق الكتابة (Zero-Race Grade Auto-Saving)**: تصحيح تنظيف المؤقت في خطاف حفظ النقاط بـ `GradesAndEvaluation.tsx`، لمنع إطلاق عمليات حفظ متزامنة متداخلة عند كل ضغطة زر أثناء إدخال العلامات، وحصر الحفظ الفوري عند انتهاء مهلة الـ debounce (900ms) أو عند مغادرة الصفحة (`beforeunload`/`unmount`) وتغيير القسم أو الفصل، مما حمى النقاط من التراجع أو الاستبدال أثناء الكتابة السريعة.
   - **مطابقة حقل الولاية مع مخطط قاعدة البيانات (`state_name`)**: تصحيح تحديث عمود الولاية في `profiles` من `wilaya` إلى `state_name` في `commitRosterImport` لتفادي أخطاء SQL ورفض استيراد القوائم وتحديث الملف الشخصي.
   - **تسريع وتحصين ربط الكيانات البيداغوجية بالأقسام (`O(1) classMatches`)**: تحويل فحص انتماء التلاميذ والنقاط والحصص واستعمال الزمن وتقدم المنهاج إلى بنية `Set` بالمعرّفات الصريحة والمستقرة، مما وفر بحثاً فورياً `O(1)` وضمن عدم استبعاد أي تلميذ أو نقطة أو حصة عند استرجاع البيانات من السحابة.
-

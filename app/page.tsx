@@ -10,7 +10,6 @@ import { AppStateProvider } from "@/hooks/app-state-context";
 import { SidebarSanad, SanadTab } from "@/components/SidebarSanad";
 import { TopHeaderSanad } from "@/components/TopHeaderSanad";
 import { MobileNavigation } from "@/components/MobileNavigation";
-import { OfflineIndicator } from "@/components/OfflineIndicator";
 import { SyncConflictDialog } from "@/components/SyncConflictDialog";
 import { AuthGate } from "@/components/AuthGate";
 import { ComingSoon } from "@/components/ComingSoon";
@@ -135,7 +134,6 @@ function AppContent({
     cloudReady,
     cloudStatus,
     syncError,
-    localStorageError,
     retrySync,
     conflicts,
     resolveConflictKeepRemote,
@@ -273,6 +271,7 @@ function AppContent({
           cloudStatus={cloudStatus}
           syncError={syncError}
           onRetrySync={retrySync}
+          onOpenConflict={() => setIsConflictOpen(true)}
         />
 
         {/* View Content Area (with bottom padding for Mobile Navigation bar) */}
@@ -392,13 +391,6 @@ function AppContent({
         onClose={() => setIsSearchOpen(false)}
         onNavigate={setCurrentTab}
         onPrepareUnit={handlePrepareUnit}
-      />
-      <OfflineIndicator
-        cloudStatus={cloudStatus}
-        syncError={syncError}
-        localStorageError={localStorageError}
-        onRetry={retrySync}
-        onOpenConflict={() => setIsConflictOpen(true)}
       />
       <SyncConflictDialog
         conflict={isConflictOpen ? conflicts[0] || null : null}

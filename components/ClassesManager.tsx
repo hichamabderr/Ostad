@@ -104,6 +104,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
   const [moumtazeData, setMoumtazeData] = useState<ParsedMoumtazeResult | null>(null);
   const [selectedMoumtazeClassIds, setSelectedMoumtazeClassIds] = useState<string[]>([]);
   const [isParsingMoumtaze, setIsParsingMoumtaze] = useState(false);
+  const [isImportSheetOpen, setIsImportSheetOpen] = useState(false);
 
   const dayNames = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'];
   const activeClassObj = state.classes.find(c => c.id === selectedClassId);
@@ -1610,50 +1611,34 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
                 className="hidden" />
 
               <button
-                onClick={() => moumtazeFileInputRef.current?.click()}
-                disabled={isParsingMoumtaze}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-bold shadow-xs cursor-pointer transition-all" title="استيراد الأقسام المسندة وتلاميذها من برنامج الممتاز" id="btn-import-moumtaze-students" >
-                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                <span>{isParsingMoumtaze ? 'جاري القراءة...' : 'استيراد من الممتاز'}</span>
+                type="button"
+                onClick={() => setIsImportSheetOpen(true)}
+                className="flex min-h-11 items-center gap-1.5 rounded-xl bg-[var(--primary)] px-4 py-2 text-xs font-bold text-white shadow-xs cursor-pointer"
+              >
+                <Upload className="w-4 h-4" />
+                <span>استيراد أو إضافة تلاميذ</span>
               </button>
 
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--primary)] hover:bg-[var(--primary)] text-white text-xs font-bold shadow-xs cursor-pointer" title="استيراد ملف Excel أو CSV مستخرج من منصة الرقمنة لوزارة التربية" >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>استيراد ملف الرقمنة (Excel)</span>
-              </button>
-
-              <button
-                onClick={() => setIsPasteModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-xs cursor-pointer" title="لصق قائمة أسماء التلاميذ دفعة واحدة" >
-                <ClipboardPaste className="w-3.5 h-3.5" />
-                <span>لصق الأسماء سريعاً</span>
-              </button>
-
-              <button
-                onClick={handleExportStudentsExcel}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold cursor-pointer" >
-                <Download className="w-3.5 h-3.5" />
-                <span>تصدير Excel</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setEditingStudent({
-                    id: uuidv4(),
-                    classId: selectedClassId,
-                    numberInList: classStudents.length + 1,
-                    fullName: '',
-                    gender: 'M' });
-                  setIsStudentModalOpen(true);
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer" >
-                <Plus className="w-3.5 h-3.5" />
-                <span>إضافة تلميذ</span>
-              </button>
             </div>
           </div>
+
+          {isImportSheetOpen && (
+            <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 p-3 sm:items-center" role="presentation" onClick={() => setIsImportSheetOpen(false)}>
+              <section role="dialog" aria-modal="true" aria-label="إجراءات قوائم التلاميذ" onClick={(event) => event.stopPropagation()} className="w-full max-w-lg rounded-2xl bg-[var(--bg-surface)] p-4 shadow-2xl">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="text-sm font-black text-[var(--text-primary)]">إضافة أو استيراد التلاميذ</div>
+                  <button type="button" onClick={() => setIsImportSheetOpen(false)} className="rounded-lg p-2 text-[var(--text-tertiary)] hover:bg-[var(--bg-surface-subtle)]" aria-label="إغلاق">×</button>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button type="button" onClick={() => { setIsImportSheetOpen(false); moumtazeFileInputRef.current?.click(); }} className="flex min-h-12 items-center gap-2 rounded-xl border border-[var(--border-default)] p-3 text-right text-xs font-bold hover:bg-[var(--bg-surface-subtle)]"><Sparkles className="h-4 w-4 text-[var(--warning)]" />استيراد الممتاز</button>
+                  <button type="button" onClick={() => { setIsImportSheetOpen(false); fileInputRef.current?.click(); }} className="flex min-h-12 items-center gap-2 rounded-xl border border-[var(--border-default)] p-3 text-right text-xs font-bold hover:bg-[var(--bg-surface-subtle)]"><FileSpreadsheet className="h-4 w-4 text-[var(--primary)]" />استيراد الرقمنة</button>
+                  <button type="button" onClick={() => { setIsImportSheetOpen(false); setIsPasteModalOpen(true); }} className="flex min-h-12 items-center gap-2 rounded-xl border border-[var(--border-default)] p-3 text-right text-xs font-bold hover:bg-[var(--bg-surface-subtle)]"><ClipboardPaste className="h-4 w-4 text-[var(--primary)]" />لصق قائمة أسماء</button>
+                  <button type="button" onClick={() => { setIsImportSheetOpen(false); setEditingStudent({ id: uuidv4(), classId: selectedClassId, numberInList: classStudents.length + 1, fullName: '', gender: 'M' }); setIsStudentModalOpen(true); }} className="flex min-h-12 items-center gap-2 rounded-xl border border-[var(--border-default)] p-3 text-right text-xs font-bold hover:bg-[var(--bg-surface-subtle)]"><Plus className="h-4 w-4 text-[var(--primary)]" />إضافة يدوية</button>
+                  <button type="button" onClick={() => { setIsImportSheetOpen(false); handleExportStudentsExcel(); }} className="flex min-h-12 items-center gap-2 rounded-xl border border-[var(--border-default)] p-3 text-right text-xs font-bold hover:bg-[var(--bg-surface-subtle)] sm:col-span-2"><Download className="h-4 w-4 text-[var(--text-secondary)]" />تصدير قائمة Excel</button>
+                </div>
+              </section>
+            </div>
+          )}
 
           {/* Students Table */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">

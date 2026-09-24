@@ -151,6 +151,7 @@ export interface Database {
           weekly_hours: number;
           academic_year: string | null;
           notes: string | null;
+          color: string | null;
           revision: number;
           created_at: string;
           updated_at: string;
@@ -242,7 +243,27 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['grades']['Insert']>;
         Relationships: [];
       };
-      sessions: SimpleTable<{ id: string; workspace_id: string; owner_id: string; class_id: string; session_date: string; start_time: string | null; end_time: string | null; trimester: number | null; topic: string | null; teacher_notes: string | null; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
+      sessions: SimpleTable<{
+        id: string;
+        workspace_id: string;
+        owner_id: string;
+        class_id: string;
+        session_date: string;
+        start_time: string | null;
+        end_time: string | null;
+        trimester: number | null;
+        topic: string | null;
+        summary: string | null;
+        assignments: string | null;
+        teacher_notes: string | null;
+        revision: number;
+        updated_by: string | null;
+        sync_revision: number;
+        sync_updated_at: string;
+        sync_device_id: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
       attendance: SimpleTable<{ id: string; workspace_id: string; owner_id: string; session_id: string; student_id: string; status: string; note: string | null; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
       session_behaviors: SimpleTable<{ id: string; workspace_id: string; owner_id: string; session_id: string; student_id: string; behavior: string; rating: number | null; note: string | null; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;
       timetable_slots: SimpleTable<{ id: string; workspace_id: string; owner_id: string; class_id: string; weekday: number; start_time: string; end_time: string; room: string | null; notes: string | null; revision: number; updated_by: string | null; created_at: string; updated_at: string }>;

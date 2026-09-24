@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Trash2,
   Upload,
+  UserRound,
 } from "lucide-react";
 import React, { useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
@@ -31,6 +32,9 @@ import { ConfirmDialog } from "./ConfirmDialog";
 
 interface SettingsSanadProps {
 }
+
+type SettingsTab = "profile" | "calendar" | "evaluation" | "backup";
+const RESET_CONFIRMATION = "إعادة تعيين";
 
 export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
   const {
@@ -55,6 +59,8 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
   const [pendingImportedState, setPendingImportedState] = useState<AppState | null>(null);
   const [isAddHolidayOpen, setIsAddHolidayOpen] = useState(false);
   const [holidayToDeleteId, setHolidayToDeleteId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
+  const [resetConfirmationText, setResetConfirmationText] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfArchiveInputRef = useRef<HTMLInputElement>(null);
@@ -75,19 +81,23 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
   };
 
   const handleClearClassesData = () => {
+    setResetConfirmationText("");
     setShowResetConfirm(true);
   };
 
   const confirmClearClassesData = async () => {
+    if (resetConfirmationText.trim() !== RESET_CONFIRMATION) return;
     try {
       await clearRosterData();
       setShowResetConfirm(false);
+      setResetConfirmationText("");
       setShowSuccessMsg("تمت إعادة تعيين الأقسام والتلاميذ ومزامنتها بنجاح.");
       showToast("تمت إعادة تعيين الأقسام والتلاميذ ومزامنتها بنجاح.", "success");
       setTimeout(() => setShowSuccessMsg(""), 3000);
     } catch (error) {
       console.error("Roster reset failed:", error);
       setShowResetConfirm(false);
+      setResetConfirmationText("");
       showToast("تعذر تأكيد إعادة تعيين الأقسام والتلاميذ في السحابة. يرجى التحقق من الاتصال وإعادة المحاولة.", "error");
     }
   };
@@ -242,8 +252,42 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
       )}
 
       {/* Section 0: Professional Profile */}
-      <ProfessionalProfile />
+      <div className="flex overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xs" role="tablist" aria-label="أقسام الإعدادات">
+        {([
+          ["profile", "الملف المهني", UserRound],
+          ["calendar", "التقويم الدراسي", Calendar],
+          ["evaluation", "التقويم المستمر", ShieldCheck],
+          ["backup", "النسخ الاحتياطي", Download],
+        ] as const).map(([tab, label, Icon]) => (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab}
+            onClick={() => setActiveTab(tab)}
+            className={`min-h-11 flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold transition-colors cursor-pointer ${
+              activeTab === tab
+                ? "bg-[var(--primary-soft)] text-[var(--accent-navy)]"
+                : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+            }`}>
+            <Icon className="mx-auto mb-1 h-4 w-4" />
+            {label}
+          </button>
+        ))}
+      </div>
 
+      {activeTab === "profile" && (
+        <section aria-label="الملف المهني" className="space-y-4">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
+            <UserRound className="h-4 w-4 text-[var(--primary)]" />
+            <span>الملف المهني</span>
+          </div>
+          <ProfessionalProfile />
+        </section>
+      )}
+
+      {activeTab === "calendar" && (
+        <section aria-label="التقويم الدراسي" className="space-y-6">
       {/* Section 1: السنوات الدراسية والفصول (Screenshot 1) */}
       <div className="bg-white border border-slate-200/90 rounded-xl p-6 shadow-xs space-y-4">
         <div className="flex items-center justify-between">
@@ -407,8 +451,8 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
           </div>
         </div>
 
-        {/* Holidays Badges Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-2">
+        {/* Compact holiday timeline */}
+        <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 rounded-xl border border-slate-100">
           {calendarSettings.holidays.map((holiday) => {
             const isNational = holiday.type === "national";
             const isReligious = holiday.type === "religious";
@@ -417,10 +461,13 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
             return (
               <div
                 key={holiday.id}
-                className="flex items-center justify-between p-3 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-all text-xs group">
-                <div className="space-y-1">
-                  <div className="font-bold text-slate-800">{holiday.name}</div>
-                  <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                className="group flex items-center gap-3 bg-white px-3 py-2.5 text-xs transition-colors hover:bg-slate-50">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--primary-soft)] text-[var(--primary)]">
+                  <Clock className="h-3.5 w-3.5" />
+                </div>
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="truncate font-bold text-slate-800">{holiday.name}</div>
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
                     <span
                       className={`px-1.5 py-0.2 rounded-md font-semibold text-[10px] ${
                         isTerm
@@ -441,7 +488,7 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
 
                 <button
                   onClick={() => setHolidayToDeleteId(holiday.id)}
-                  className="text-slate-300 hover:text-rose-600 p-1 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                  className="p-2 text-slate-300 opacity-0 transition-opacity hover:text-rose-600 group-hover:opacity-100 cursor-pointer"
                   title="حذف">
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -450,7 +497,11 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
           })}
         </div>
       </div>
+        </section>
+      )}
 
+      {activeTab === "evaluation" && (
+        <section aria-label="التقويم المستمر" className="space-y-6">
       {/* Section 3: التقويم المستمر — قواعد التقويم المستمر */}
       <div className="bg-white border border-slate-200/90 rounded-xl p-6 shadow-xs space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
@@ -670,7 +721,11 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
           </label>
         </div>
       </div>
+        </section>
+      )}
 
+      {activeTab === "backup" && (
+        <section aria-label="النسخ الاحتياطي" className="space-y-6">
       {/* Section 4: النسخ الاحتياطي واستعادة البيانات */}
       <div className="bg-white border border-slate-200/90 rounded-xl p-6 shadow-xs space-y-4">
         <div>
@@ -730,9 +785,11 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
           </button>
         </div>
       </div>
+        </section>
+      )}
 
       {/* Section 5: Danger Zone (منطقة العمليات الحساسة) */}
-      <div className="bg-rose-50/70 border border-rose-200 rounded-2xl p-5 space-y-3">
+      <div className="border border-rose-200 bg-rose-50/70 rounded-2xl p-5 space-y-3">
         <div className="flex items-center gap-2 text-xs font-bold text-rose-900">
           <AlertTriangle className="w-4 h-4 text-rose-600" />
           <span>منطقة العمليات الحساسة (Danger Zone)</span>
@@ -837,26 +894,41 @@ export const SettingsSanad: React.FC<SettingsSanadProps> = () => {
                 إعادة تعيين الأقسام
               </h3>
             </div>
-            <div className="p-5 text-sm text-slate-700 leading-relaxed font-bold">
+            <div className="space-y-4 p-5 text-sm text-slate-700 leading-relaxed font-bold">
               هل أنت متأكد؟ سيتم مسح جميع بيانات الأقسام، والتلاميذ، والغيابات،
               والعلامات بشكل نهائي.
-              <br />
-              <br />
               <span className="text-slate-500 font-normal">
                 ملاحظة: سيتم الإبقاء على ملفك المهني، وإعدادات التطبيق،
                 والمذكرات والتحاضير البيداغوجية.
               </span>
+              <div className="space-y-1.5">
+                <label htmlFor="roster-reset-confirmation" className="block text-xs font-bold text-rose-800">
+                  اكتب «{RESET_CONFIRMATION}» للمتابعة
+                </label>
+                <input
+                  id="roster-reset-confirmation"
+                  value={resetConfirmationText}
+                  onChange={(event) => setResetConfirmationText(event.target.value)}
+                  className="w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm font-normal text-slate-900 focus:outline-none focus:ring-2 focus:ring-[var(--danger)]"
+                  autoComplete="off"
+                  dir="rtl"
+                />
+              </div>
             </div>
             <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
               <button
-                onClick={() => setShowResetConfirm(false)}
+                onClick={() => {
+                  setShowResetConfirm(false);
+                  setResetConfirmationText("");
+                }}
                 className="px-4 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-200 transition-colors text-sm cursor-pointer">
                 إلغاء
               </button>
               <button
                 onClick={confirmClearClassesData}
-                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold transition-colors text-sm shadow-sm cursor-pointer">
-                نعم، مسح البيانات
+                disabled={resetConfirmationText.trim() !== RESET_CONFIRMATION}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50 text-white font-bold transition-colors text-sm shadow-sm cursor-pointer">
+                نعم، مسح البيانات نهائياً
               </button>
             </div>
           </div>

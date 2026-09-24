@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useAppState } from '@/hooks/app-state-context';
+import { showToast } from '@/components/Toast';
 import { AppState } from '@/lib/storage';
 import { SessionRecord } from '@/lib/types';
 import { getMergedCurriculumUnits } from '@/lib/curriculum-data';
@@ -87,6 +88,22 @@ export const DocumentsExport: React.FC<DocumentsExportProps> = () => {
       default:
         return 'وثيقة بيداغوجية';
     }
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleShare = async () => {
+    const title = getDocTitle();
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      await navigator.share({
+        title,
+        text: `${title} — ${activeClass?.name || 'القسم'}`,
+      });
+      return;
+    }
+    showToast('المشاركة غير متاحة على هذا الجهاز. استخدم الطباعة أو التنزيل.', 'warning');
   };
 
   // Export to Microsoft Word document (.doc)
@@ -406,13 +423,29 @@ export const DocumentsExport: React.FC<DocumentsExportProps> = () => {
     <div className="space-y-6 w-full max-w-[30rem] md:max-w-7xl mx-auto px-3 sm:px-6 md:px-8 py-4 sm:py-6" id="documents-pedagogical-view">
       {/* 1. Header Toolbar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200/90 shadow-2xs">
-        {/* Action Button: Export DOC only */}
+        {/* Mobile-friendly derived document actions */}
         <div className="flex items-center gap-2.5 flex-wrap">
           <button
-            type="button" onClick={handleExportDoc}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-xs font-bold shadow-xs hover:shadow-md transition-all cursor-pointer" title="تصدير الوثيقة كملف Microsoft Word (.doc)" id="btn-export-doc-word" >
+            type="button"
+            onClick={handlePrint}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[var(--primary)] text-[var(--primary)] text-xs font-bold hover:bg-[var(--primary-soft)] transition-colors cursor-pointer"
+          >
+            <FileText className="w-4 h-4" />
+            <span>طباعة A4</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleShare()}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[var(--border-default)] text-[var(--text-primary)] text-xs font-bold hover:bg-[var(--bg-surface-subtle)] transition-colors cursor-pointer"
+          >
             <Download className="w-4 h-4" />
-            <span>تصدير ملف DOC (Word)</span>
+            <span>مشاركة</span>
+          </button>
+          <button
+            type="button" onClick={handleExportDoc}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-xs font-bold shadow-xs hover:shadow-md transition-all cursor-pointer" title="تصدير الوثيقة" id="btn-export-doc-word" >
+            <Download className="w-4 h-4" />
+            <span>تنزيل الوثيقة</span>
           </button>
         </div>
       </div>
@@ -537,7 +570,34 @@ export const DocumentsExport: React.FC<DocumentsExportProps> = () => {
         {/* --------------------------------------------- */}
         {docType === 'JOURNAL' && (
           <div className="space-y-3">
-            <div className="overflow-x-auto scrollbar-thin w-full print:overflow-visible">
+            <div className="space-y-2 sm:hidden">
+              {classPastSessions.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-[var(--border-default)] p-5 text-center text-xs text-[var(--text-tertiary)]">
+                  لا توجد حصص مسجلة بعد لهذا القسم.
+                </div>
+              ) : classPastSessions.map((session) => {
+                const unit = getMergedCurriculumUnits(state.customUnits).find((item) => item.id === session.unitId);
+                const absents = Object.values(session.attendance || {}).filter(
+                  (status) => status === 'ABSENT' || status === 'EXCUSED',
+                ).length;
+                return (
+                  <article key={session.id} className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3 shadow-xs">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-black text-[var(--text-primary)]">{unit?.title || session.customTopic || 'حصة عادية'}</div>
+                        <div className="mt-1 text-[11px] font-semibold text-[var(--text-tertiary)]">{session.date} • {session.startTime} - {session.endTime}</div>
+                      </div>
+                      <span className="rounded-full bg-[var(--danger-soft)] px-2 py-1 text-[10px] font-bold text-[var(--danger)]">غياب: {absents}</span>
+                    </div>
+                    <div className="mt-2 space-y-1 text-xs leading-6 text-[var(--text-secondary)]">
+                      <p><strong>المنجز:</strong> {session.accomplishments || '—'}</p>
+                      <p><strong>الواجبات:</strong> {session.nextSteps || '—'}</p>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+            <div className="hidden overflow-x-auto scrollbar-thin w-full print:overflow-visible sm:block">
               <table className="w-full min-w-[640px] sm:min-w-0 text-right border-collapse border border-slate-900 text-xs">
                 <thead className="bg-slate-100 border-b border-slate-900 font-bold">
                   <tr>

@@ -45,7 +45,7 @@ export interface AppState {
   cloudRevision?: number;
 }
 
-const BACKUP_VERSION = "2.0.0";
+const BACKUP_VERSION = "2.1.0";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -128,7 +128,10 @@ function normalizeImportedState(value: unknown): AppState {
     ...defaults,
     ...value,
     profile: { ...defaults.profile, ...value.profile },
-    classes: value.classes,
+    classes: value.classes.map((item) => ({
+      ...item,
+      color: typeof item.color === "string" ? item.color : undefined,
+    })),
     timetable: value.timetable,
     students: value.students,
     sessions: value.sessions,
