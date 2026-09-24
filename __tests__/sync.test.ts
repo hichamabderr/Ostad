@@ -1100,4 +1100,128 @@ describe('delta sync engine', () => {
       globalThis.window = originalWindow;
     }
   });
+
+  it('user-scoped cache isolation prevents cross-session pollution', async () => {
+    const originalWindow = globalThis.window;
+    globalThis.window = {} as any;
+
+    try {
+      const userAState = {
+        ...getEmptyState(),
+        classes: [{ id: 'ca1', name: '2 ع ت 1', level: '2AS' as const, stream: 'علوم' }],
+      };
+      const userBState = {
+        ...getEmptyState(),
+        classes: [{ id: 'cb1', name: '3 آداب 1', level: '3AS' as const, stream: 'آداب' }],
+      };
+
+      // Save for user A and user B
+      await saveAppStateCache(userAState, 'user-a');
+      await saveAppStateCache(userBState, 'user-b');
+
+      // Load for user A -> gets user A's class only
+      const cachedA = await loadAppStateCache('user-a');
+      expect(cachedA?.classes).toHaveLength(1);
+      expect(cachedA?.classes[0].name).toBe('2 ع ت 1');
+
+      // Load for user B -> gets user B's class only
+      const cachedB = await loadAppStateCache('user-b');
+      expect(cachedB?.classes).toHaveLength(1);
+      expect(cachedB?.classes[0].name).toBe('3 آداب 1');
+
+      // Clear user A cache on logout
+      const { clearAppStateCache } = await import('@/lib/state-cache');
+      await clearAppStateCache('user-a');
+
+      expect(await loadAppStateCache('user-a')).toBeNull();
+      // User B cache is unaffected
+      expect((await loadAppStateCache('user-b'))?.classes[0].name).toBe('3 آداب 1');
+    } finally {
+      globalThis.window = originalWindow;
+    }
+  });
+
+  it('loadCoreState reconciles activeClassId with app_settings so activeClassId is never null when classes exist', async () => {
+    const mockClient = {
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'user-active-class-test' } }, error: null }) },
+      from: vi.fn((table: string) => ({
+        select: vi.fn(() => ({
+          eq: vi.fn(() => {
+            if (table === 'classes') {
+              return { data: [{ id: 'class-1', name: '2 لغات', level: '2AS' }], error: null };
+            }
+            if (table === 'app_settings') {
+              return { data: [{ settings: { activeClassId: 'class-1' } }], error: null };
+            }
+            return {
+              eq: vi.fn().mockReturnValue({
+                is: vi.fn().mockResolvedValue({ data: [], error: null }),
+              }),
+              is: vi.fn().mockResolvedValue({ data: [], error: null }),
+              data: [],
+              error: null,
+            };
+          }),
+        })),
+      })),
+      storage: { from: vi.fn() },
+    };
+
+    const emptyLocal = getEmptyState();
+    emptyLocal.activeClassId = null;
+
+    const loaded = await loadCoreState(mockClient as any, emptyLocal);
+    expect(loaded.classes).toHaveLength(1);
+    expect(loaded.activeClassId).toBe('class-1');
+  });
+
+  it('loadCoreState retains students and grades matching classes via classMatches', async () => {
+    const mockClient = {
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'user-class-match' } }, error: null }) },
+      from: vi.fn((table: string) => ({
+        select: vi.fn(() => ({
+          eq: vi.fn(() => {
+            if (table === 'classes') {
+              return { data: [{ id: 'class-uuid-1', name: '2 ع ت 1', level: '2AS' }], error: null };
+            }
+            if (table === 'students') {
+              return { data: [{ id: 'student-uuid-1', class_id: 'class-uuid-1', full_name: 'محمد علي', number_in_list: 1 }], error: null };
+            }
+            if (table === 'grades') {
+              return { data: [{ id: 'grade-uuid-1', student_id: 'student-uuid-1', class_id: 'class-uuid-1', trimester: 1, continuous_eval: 16 }], error: null };
+            }
+            return {
+              eq: vi.fn().mockReturnValue({
+                is: vi.fn().mockResolvedValue({ data: [], error: null }),
+              }),
+              is: vi.fn().mockResolvedValue({ data: [], error: null }),
+              data: [],
+              error: null,
+            };
+          }),
+        })),
+      })),
+      storage: { from: vi.fn() },
+    };
+
+    const localState = getEmptyState();
+    const loaded = await loadCoreState(mockClient as any, localState);
+    expect(loaded.classes).toHaveLength(1);
+    expect(loaded.students).toHaveLength(1);
+    expect(loaded.students[0].fullName).toBe('محمد علي');
+    expect(loaded.grades).toHaveLength(1);
+    expect(loaded.grades[0].continuousEval).toBe(16);
+  });
+
+  it('getSyncOperationsDelta produces an upsert operation when profile stateName changes', () => {
+    const prev = getEmptyState();
+    prev.profile = { ...prev.profile, name: 'أستاذ', stateName: 'الجزائر' };
+    const next = { ...prev, profile: { ...prev.profile, stateName: 'وهران' } };
+
+    const ops = getSyncOperationsDelta(prev, next);
+    const profileOp = ops.find((o) => o.entity === 'profile');
+    expect(profileOp).toBeDefined();
+    expect(profileOp?.payload.stateName).toBe('وهران');
+  });
 });
+

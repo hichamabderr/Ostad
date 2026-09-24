@@ -433,7 +433,7 @@ function AppContent({
 export default function Page() {
   return (
     <AuthGate>
-      {(user, onSignOut) => <AppContent user={user} onSignOut={onSignOut} />}
+      {(user, onSignOut) => <AppContent key={user?.id || 'anon'} user={user} onSignOut={onSignOut} />}
     </AuthGate>
   );
 }

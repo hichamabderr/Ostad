@@ -12,7 +12,6 @@ import { commitRosterImportBatch, type RosterImportClass, type RosterImportStude
 import { flushMemorandaOutbox } from '@/lib/supabase/memoranda-storage';
 import {
   enqueueSyncDelta,
-  enqueueSyncState,
   getSyncDeviceId,
   listSyncOutbox,
   removeSyncOutboxEntry,
@@ -142,6 +141,7 @@ export async function flushSyncOutbox(
   ownerId: string,
   syncingRef: { current: boolean },
   onError: (error: unknown) => void,
+  force = false,
 ): Promise<boolean> {
   if (!client || syncingRef.current) return false;
   if (!(await hasAuthenticatedOwner(client, ownerId))) return false;
@@ -160,7 +160,7 @@ export async function flushSyncOutbox(
         return true;
       }
       const waitUntil = Date.parse(entry.nextAttemptAt || '');
-      if (Number.isFinite(waitUntil) && waitUntil > Date.now()) {
+      if (!force && Number.isFinite(waitUntil) && waitUntil > Date.now()) {
         retryAt = waitUntil;
         return false;
       }
@@ -195,20 +195,15 @@ export async function flushSyncOutbox(
   }
 }
 
-let sharedAppState: AppState | null = null;
-let sharedCloudStatus: CloudSyncStatus = 'ready';
-let sharedLastSyncedState: AppState | null = null;
-let sharedRevision = 0;
-
 export function useCloudAppState(user: User | null) {
-  const [state, setState] = useState<AppState>(() => sharedAppState || getEmptyState());
+  const [state, setState] = useState<AppState>(getEmptyState);
   const isMounted = useSyncExternalStore(
     () => () => {},
     () => true,
     () => false,
   );
   const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus>(() =>
-    user ? (sharedAppState ? sharedCloudStatus : 'loading') : 'ready'
+    user ? 'loading' : 'ready'
   );
   const [syncError, setSyncError] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<SyncConflictDescriptor[]>([]);
@@ -219,8 +214,8 @@ export function useCloudAppState(user: User | null) {
   const pendingSaveTimerRef = useRef<number | null>(null);
   const saveGenerationRef = useRef(0);
   const latestStateRef = useRef(state);
-  const lastSyncedStateRef = useRef<AppState | null>(sharedLastSyncedState);
-  const revisionRef = useRef(sharedRevision);
+  const lastSyncedStateRef = useRef<AppState | null>(null);
+  const revisionRef = useRef(0);
   const updatedAtRef = useRef(new Date(0).toISOString());
 
   const registerConflict = async (error: unknown): Promise<void> => {
@@ -256,37 +251,32 @@ export function useCloudAppState(user: User | null) {
   };
 
   useEffect(() => {
-    sharedCloudStatus = cloudStatus;
     cloudStatusRef.current = cloudStatus;
   }, [cloudStatus]);
 
   useEffect(() => {
-    sharedAppState = state;
     latestStateRef.current = state;
   }, [state]);
 
-  // Unified initial state initialization: loads IndexedDB cache first, then syncs with Supabase if online
+  // Unified initial state initialization: loads user-scoped IndexedDB cache first, then syncs with Supabase
   useEffect(() => {
     let active = true;
 
     const initializeState = async () => {
-      // 1. Ensure local cache is checked first if in-memory sharedAppState is absent
-      let currentLocal = sharedAppState;
-      if (!currentLocal) {
-        try {
-          const cachedState = await loadAppStateCache();
-          if (cachedState && !isDemoState(cachedState)) {
-            currentLocal = cachedState;
-            if (active) {
-              sharedAppState = cachedState;
-              latestStateRef.current = cachedState;
-              setState(cachedState);
-            }
+      // 1. Load user-scoped local cache first
+      let currentLocal: AppState | null = null;
+      try {
+        const cachedState = await loadAppStateCache(user?.id);
+        if (cachedState && !isDemoState(cachedState)) {
+          currentLocal = cachedState;
+          if (active) {
+            latestStateRef.current = cachedState;
+            setState(cachedState);
           }
-        } catch (cacheErr) {
-          console.error('Local workspace load failed:', cacheErr);
-          if (active) setLocalStorageError(cacheErr instanceof Error ? cacheErr.message : 'تعذر تحميل النسخة المحلية.');
         }
+      } catch (cacheErr) {
+        console.error('Local workspace load failed:', cacheErr);
+        if (active) setLocalStorageError(cacheErr instanceof Error ? cacheErr.message : 'تعذر تحميل النسخة المحلية.');
       }
 
       // 2. If not authenticated, local workspace is ready
@@ -295,7 +285,7 @@ export function useCloudAppState(user: User | null) {
         return;
       }
 
-      // 3. Authenticated: load from Supabase
+      // 3. Authenticated: load authoritative state from Supabase
       const client = createSupabaseBrowserClient();
       if (!client) {
         if (active) setCloudStatus('local-only');
@@ -307,43 +297,30 @@ export function useCloudAppState(user: User | null) {
       }
 
       try {
-        const remoteState = await loadCoreState(client, currentLocal || latestStateRef.current);
+        let remoteState = await loadCoreState(client, currentLocal || latestStateRef.current);
         if (!active) return;
 
-        // Check if there are unacknowledged outbox operations locally
+        // Flush any pending outbox entries for this user
         const pending = await listSyncOutbox(user.id);
-        const hasPendingRosterOps = pending.some((entry) =>
-          entry.operations.some((op) => op.entity === 'class' || op.entity === 'student')
-        );
-
-        if (hasPendingRosterOps && currentLocal && currentLocal.classes.length > 0) {
-          // Preserve local roster modifications only while unacknowledged outbox mutations remain
-          sharedAppState = currentLocal;
-          latestStateRef.current = currentLocal;
-          setState(currentLocal);
-        } else {
-          // Supabase is the source of truth (empty or populated)
-          sharedAppState = remoteState;
-          sharedLastSyncedState = remoteState;
-          latestStateRef.current = remoteState;
-          lastSyncedStateRef.current = remoteState;
-          setState(remoteState);
-          void saveAppStateCache(remoteState);
+        if (pending.length > 0) {
+          await flushSyncOutbox(client, user.id, syncingRef, (err) => {
+            console.warn('Initial pending outbox flush warning:', err);
+          }, true);
+          if (!active) return;
+          const refreshed = await loadCoreState(client, remoteState);
+          remoteState = refreshed;
         }
+
+        latestStateRef.current = remoteState;
+        lastSyncedStateRef.current = remoteState;
 
         if (typeof remoteState.cloudRevision === 'number' && remoteState.cloudRevision > revisionRef.current) {
           revisionRef.current = remoteState.cloudRevision;
-          sharedRevision = remoteState.cloudRevision;
         }
 
+        setState(remoteState);
+        void saveAppStateCache(remoteState, user.id);
         setCloudStatus('ready');
-
-        // Flush any pending outbox entries
-        if (pending.length > 0 && active) {
-          void flushSyncOutbox(client, user.id, syncingRef, (err) => {
-            console.error('Initial outbox flush failed:', err);
-          });
-        }
       } catch (error) {
         if (!active) return;
         if (isLocalOnlyCloudError(error)) {
@@ -364,12 +341,12 @@ export function useCloudAppState(user: User | null) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
-  // Cache save effect
+  // Cache save effect (user-scoped)
   useEffect(() => {
     if (!isMounted) return;
     if (isDemoState(state)) return;
     const timer = window.setTimeout(() => {
-      void saveAppStateCache(state)
+      void saveAppStateCache(state, user?.id)
         .then(() => {
           setLocalStorageError(null);
         })
@@ -401,10 +378,8 @@ export function useCloudAppState(user: User | null) {
         window.clearTimeout(pendingSaveTimerRef.current);
         pendingSaveTimerRef.current = null;
       }
-      sharedAppState = null;
-      sharedCloudStatus = 'ready';
-      sharedLastSyncedState = null;
-      sharedRevision = 0;
+      revisionRef.current = 0;
+      lastSyncedStateRef.current = null;
       setCloudStatus('ready');
       setSyncError(null);
       setConflicts([]);
@@ -415,16 +390,13 @@ export function useCloudAppState(user: User | null) {
       if (syncingRef.current || pendingSaveTimerRef.current !== null || (await listSyncOutbox(user.id)).length > 0) return;
 
       const remoteState = await loadCoreState(client, latestStateRef.current);
-      sharedAppState = remoteState;
-      sharedLastSyncedState = remoteState;
       latestStateRef.current = remoteState;
       lastSyncedStateRef.current = remoteState;
       if (typeof remoteState.cloudRevision === 'number' && remoteState.cloudRevision > revisionRef.current) {
         revisionRef.current = remoteState.cloudRevision;
-        sharedRevision = remoteState.cloudRevision;
       }
       setState(remoteState);
-      void saveAppStateCache(remoteState);
+      void saveAppStateCache(remoteState, user.id);
     };
 
     let channel = client.channel(`core-state:${user.id}`);
@@ -467,12 +439,15 @@ export function useCloudAppState(user: User | null) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
+  // Debounced background save effect for standard changes
   useEffect(() => {
     if (!isMounted || !cloudReady) return;
     if (!user) return;
     if (cloudStatus === 'local-only' || cloudStatus === 'conflict') return;
+    // Guard: do NOT trigger save if state is identical to last synced state
+    if (state === lastSyncedStateRef.current) return;
+
     revisionRef.current += 1;
-    sharedRevision = revisionRef.current;
     updatedAtRef.current = new Date().toISOString();
     const revision = revisionRef.current;
     const updatedAt = updatedAtRef.current;
@@ -508,7 +483,6 @@ export function useCloudAppState(user: User | null) {
         })
         .then(async (flushed) => {
           if (!flushed || (await listSyncOutbox(user.id)).length > 0) return;
-          sharedLastSyncedState = state;
           lastSyncedStateRef.current = state;
           setSyncError(null);
           setCloudStatus('ready');
@@ -526,7 +500,7 @@ export function useCloudAppState(user: User | null) {
         .finally(() => {
           if (pendingSaveTimerRef.current === -1) pendingSaveTimerRef.current = null;
         });
-    }, 700);
+    }, 300);
     pendingSaveTimerRef.current = timer;
     return () => {
       window.clearTimeout(timer);
@@ -544,7 +518,7 @@ export function useCloudAppState(user: User | null) {
       setCloudStatus('loading');
       const flushed = await flushSyncOutbox(client, user.id, syncingRef, (error) => {
         console.error('Cloud sync retry failed:', describeCloudError(error).message);
-      });
+      }, true);
       if (!flushed || (await listSyncOutbox(user.id)).length > 0) {
         setCloudStatus('local-only');
         return;
@@ -585,7 +559,7 @@ export function useCloudAppState(user: User | null) {
       setCloudStatus(error instanceof Error && error.name === 'SyncConflictError' ? 'conflict' : 'sync-failed');
       void registerConflict(error);
       console.error('Cloud sync retry failed:', message);
-    });
+    }, true);
     if (!flushed || (await listSyncOutbox(user.id)).length > 0) return;
     setCloudStatus('ready');
     setSyncError(null);
@@ -597,7 +571,7 @@ export function useCloudAppState(user: User | null) {
         revisionRef.current = remoteState.cloudRevision;
       }
       setState(remoteState);
-      void saveAppStateCache(remoteState);
+      void saveAppStateCache(remoteState, user.id);
     } catch (error) {
       console.warn('Post-sync retry refresh warning:', describeCloudError(error).message);
     }
@@ -641,7 +615,7 @@ export function useCloudAppState(user: User | null) {
     const flushed = await flushSyncOutbox(client, user.id, syncingRef, (error) => {
       setSyncError(describeCloudError(error).message);
       setCloudStatus(error instanceof SyncConflictError ? 'conflict' : 'sync-failed');
-    });
+    }, true);
     if (!flushed || (await listSyncOutbox(user.id)).length > 0) {
       throw new Error('تعذر تأكيد النسخة المحلية بعد حل التعارض.');
     }
@@ -679,43 +653,79 @@ export function useCloudAppState(user: User | null) {
     });
   };
 
-  const waitForSyncConfirmation = async (): Promise<void> => {
-    if (!user) {
-      throw new Error('لا يمكن إعلان نجاح سحابي قبل تسجيل الدخول.');
-    }
-    const currentStatus = cloudStatusRef.current;
-    if (currentStatus === 'conflict') {
-      throw new Error('توجد عملية مزامنة متعارضة. أعد المحاولة قبل حفظ تغيير جديد.');
-    }
-
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
-    const deadline = Date.now() + 2_500;
-    let observedPendingWork = false;
-    while (Date.now() < deadline) {
-      const pending = await listSyncOutbox(user.id);
-      const status = cloudStatusRef.current;
-      if (pending.length > 0 || status === 'sync-pending' || status === 'loading') {
-        observedPendingWork = true;
-      }
-      if (status === 'conflict' || status === 'local-only') {
-        throw new Error(syncError || 'تعذر تأكيد الحفظ في السحابة.');
-      }
-      if (observedPendingWork && status === 'ready' && pending.length === 0) {
-        return;
-      }
-      await new Promise((resolve) => window.setTimeout(resolve, 200));
-    }
-    throw new Error('تأخر تأكيد الحفظ السحابي. حُفظ التغيير محلياً وستتم إعادة المزامنة تلقائياً.');
-  };
-
   const updateStateAndWait = async (updater: (previous: AppState) => AppState): Promise<void> => {
-    handleUpdateState(updater);
+    saveGenerationRef.current += 1;
+    if (pendingSaveTimerRef.current !== null && pendingSaveTimerRef.current !== -1) {
+      window.clearTimeout(pendingSaveTimerRef.current);
+      pendingSaveTimerRef.current = null;
+    }
+
+    let nextState: AppState = latestStateRef.current;
+    setState((previous) => {
+      const computed = updater(previous);
+      const deletedRecordIds = getDeletedRecordIds(previous, computed);
+      nextState = {
+        ...computed,
+        deletedRecordIds: Array.from(new Set([
+          ...(previous.deletedRecordIds || []),
+          ...deletedRecordIds,
+        ])),
+      };
+      return nextState;
+    });
+
+    latestStateRef.current = nextState;
+    void saveAppStateCache(nextState, user?.id);
+
+    if (!user) return;
+
+    setCloudStatus('sync-pending');
+    setSyncError(null);
+
+    revisionRef.current += 1;
+    const revision = revisionRef.current;
+    const updatedAt = new Date().toISOString();
+    const syncedDeletedIds = new Set(nextState.deletedRecordIds || []);
+
+    const client = createSupabaseBrowserClient();
+    if (!client) {
+      setCloudStatus('local-only');
+      return;
+    }
+
     try {
-      await waitForSyncConfirmation();
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith('تأخر تأكيد الحفظ السحابي')) {
-        return;
+      await enqueueSyncDelta(user.id, lastSyncedStateRef.current, nextState, revision, updatedAt);
+      const flushed = await flushSyncOutbox(client, user.id, syncingRef, (error) => {
+        if (isLocalOnlyCloudError(error)) {
+          setCloudStatus('local-only');
+          return;
+        }
+        const message = describeCloudError(error).message;
+        setSyncError(message);
+        setCloudStatus(error instanceof Error && error.name === 'SyncConflictError' ? 'conflict' : 'sync-failed');
+        void registerConflict(error);
+        console.error('Cloud state save failed:', message);
+      }, true);
+
+      if (flushed && (await listSyncOutbox(user.id)).length === 0) {
+        lastSyncedStateRef.current = nextState;
+        setSyncError(null);
+        setCloudStatus('ready');
+        setState((previous) => (
+          previous.deletedRecordIds?.length
+            ? {
+                ...previous,
+                deletedRecordIds: previous.deletedRecordIds.filter(
+                  (id) => !syncedDeletedIds.has(id),
+                ),
+              }
+            : previous
+        ));
       }
+    } catch (error) {
+      const message = describeCloudError(error).message;
+      setSyncError(message);
+      setCloudStatus('sync-failed');
       throw error;
     }
   };
@@ -740,9 +750,9 @@ export function useCloudAppState(user: User | null) {
     setState(normalizedState);
     latestStateRef.current = normalizedState;
     lastSyncedStateRef.current = null;
-    await saveAppStateCache(normalizedState);
+    await saveAppStateCache(normalizedState, user?.id);
     setLocalStorageError(null);
-    if (user) await waitForSyncConfirmation();
+    if (user) await updateStateAndWait(() => normalizedState);
   };
 
   const clearRosterData = async (): Promise<void> => {
@@ -786,11 +796,10 @@ export function useCloudAppState(user: User | null) {
       deletedRecordIds: [],
     };
 
-    sharedAppState = nextState;
     latestStateRef.current = nextState;
     lastSyncedStateRef.current = nextState;
     setState(nextState);
-    await saveAppStateCache(nextState, { allowEmptyRoster: true });
+    await saveAppStateCache(nextState, user?.id, { allowEmptyRoster: true });
 
     setSyncError(null);
     setCloudStatus(user ? 'ready' : 'local-only');
@@ -814,7 +823,7 @@ export function useCloudAppState(user: User | null) {
     await clearTeacherBinaryFiles();
     await clearDashboardTasks();
     const emptyState = getEmptyState();
-    await saveAppStateCache(emptyState, { allowEmptyRoster: true });
+    await saveAppStateCache(emptyState, user?.id, { allowEmptyRoster: true });
     setLocalStorageError(null);
     setState(emptyState);
     latestStateRef.current = emptyState;
@@ -834,10 +843,9 @@ export function useCloudAppState(user: User | null) {
     }
 
     // Immediately update in-memory state and persist to local cache
-    sharedAppState = nextState;
     latestStateRef.current = nextState;
     setState(nextState);
-    await saveAppStateCache(nextState);
+    await saveAppStateCache(nextState, user?.id);
     setLocalStorageError(null);
 
     if (!user) {
@@ -880,10 +888,9 @@ export function useCloudAppState(user: User | null) {
           classes: updatedClasses,
           students: updatedStudents,
         };
-        sharedAppState = reconciledState;
         latestStateRef.current = reconciledState;
         setState(reconciledState);
-        await saveAppStateCache(reconciledState);
+        await saveAppStateCache(reconciledState, user.id);
       }
 
       // 2. Profile updates if school name, academic year, or state changed
@@ -891,7 +898,7 @@ export function useCloudAppState(user: User | null) {
         await (client as any).from('profiles').update({
           school_name: nextState.profile.schoolName || null,
           academic_year: nextState.profile.academicYear || null,
-          wilaya: nextState.profile.stateName || null,
+          state_name: nextState.profile.stateName || null,
           updated_at: new Date().toISOString(),
         }).eq('id', user.id);
       }
@@ -908,7 +915,6 @@ export function useCloudAppState(user: User | null) {
         }
       }
 
-      sharedLastSyncedState = reconciledState;
       lastSyncedStateRef.current = reconciledState;
       setCloudStatus('ready');
       setSyncError(null);

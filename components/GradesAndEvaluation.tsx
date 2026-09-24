@@ -527,12 +527,15 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
     });
   };
 
+  const persistDraftGradesRef = React.useRef(persistDraftGrades);
+  persistDraftGradesRef.current = persistDraftGrades;
+
   useEffect(() => {
     if (!isDirtyRef.current) return;
     setSaveStatus('pending');
     const timer = window.setTimeout(() => {
       setSaveStatus('saving');
-      void persistDraftGrades()
+      void persistDraftGradesRef.current()
         .then(() => {
           isDirtyRef.current = false;
           setSaveStatus('saved');
@@ -546,16 +549,8 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
     }, 900);
     return () => {
       window.clearTimeout(timer);
-      if (isDirtyRef.current) {
-        void persistDraftGrades();
-      }
     };
-  // Persist the current draft snapshot without retriggering after the state update.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gradesDraft]);
-
-  const persistDraftGradesRef = React.useRef(persistDraftGrades);
-  persistDraftGradesRef.current = persistDraftGrades;
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -565,7 +560,12 @@ export const GradesAndEvaluation: React.FC<GradesAndEvaluationProps> = () => {
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      if (isDirtyRef.current) {
+        void persistDraftGradesRef.current();
+      }
+    };
   }, []);
 
   const handleSaveAllGrades = async () => {

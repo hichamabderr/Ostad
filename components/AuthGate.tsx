@@ -6,6 +6,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
 import { getSupabaseEnv } from '@/lib/supabase/env';
 import { getCachedAuthUser, initializeAuthState, subscribeToAuthState } from '@/lib/supabase/auth-state';
 import { showToast } from '@/components/Toast';
+import { clearAppStateCache } from '@/lib/state-cache';
 import type { User } from '@supabase/supabase-js';
 
 interface AuthGateProps {
@@ -73,6 +74,16 @@ export function AuthGate({ children }: AuthGateProps) {
 async function supabaseSignOut() {
   const supabase = createSupabaseBrowserClient();
   if (!supabase) return;
+  try {
+    const { data } = await supabase.auth.getUser();
+    if (data?.user?.id) {
+      await clearAppStateCache(data.user.id);
+    } else {
+      await clearAppStateCache();
+    }
+  } catch {
+    await clearAppStateCache();
+  }
   const { error } = await supabase.auth.signOut();
   if (error) console.error('Supabase sign-out failed:', error);
 }

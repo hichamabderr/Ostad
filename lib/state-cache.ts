@@ -1,7 +1,11 @@
 import { get, set, keys, del } from 'idb-keyval';
 import { getEmptyState, isDemoState, type AppState } from './storage';
 
-const STATE_CACHE_KEY = 'sanad:app-state:v3';
+export const LEGACY_CACHE_KEY = 'sanad:app-state:v3';
+
+export function getCacheKey(userId?: string | null): string {
+  return userId ? `sanad:app-state:v4:${userId}` : 'sanad:app-state:v4:anon';
+}
 
 /**
  * Strips huge inline base64 blobs and non-essential caches from state before writing to IndexedDB.
@@ -54,23 +58,54 @@ export async function cleanupStaleStorage(): Promise<void> {
   }
 }
 
-export async function loadAppStateCache(): Promise<AppState | null> {
+export async function clearAppStateCache(userId?: string | null): Promise<void> {
+  if (typeof window === 'undefined') return;
+  try {
+    const key = getCacheKey(userId);
+    await del(key);
+    await del(LEGACY_CACHE_KEY);
+  } catch (err) {
+    console.warn('Storage clear warning:', err);
+  }
+}
+
+export async function loadAppStateCache(userId?: string | null): Promise<AppState | null> {
   if (typeof window === 'undefined') return null;
   try {
-    return (await get<AppState>(STATE_CACHE_KEY)) ?? null;
+    const key = getCacheKey(userId);
+    const cached = await get<AppState>(key);
+    if (cached) return cached;
+
+    // Backward-compatibility fallback: read legacy v3 key once if migrating
+    const legacy = await get<AppState>(LEGACY_CACHE_KEY);
+    if (legacy && !isDemoState(legacy)) {
+      if (userId) {
+        await set(key, legacy);
+        await del(LEGACY_CACHE_KEY);
+      }
+      return legacy;
+    }
+    return null;
   } catch (error) {
     console.error('Failed to load IndexedDB workspace cache:', error);
     return null;
   }
 }
 
-export async function saveAppStateCache(state: AppState, options?: { allowEmptyRoster?: boolean }): Promise<void> {
+export async function saveAppStateCache(
+  state: AppState,
+  userIdOrOptions?: string | null | { allowEmptyRoster?: boolean },
+  options?: { allowEmptyRoster?: boolean }
+): Promise<void> {
   if (typeof window === 'undefined') return;
+
+  const userId = typeof userIdOrOptions === 'string' ? userIdOrOptions : null;
+  const key = getCacheKey(userId);
 
   // Safeguard: Never overwrite a real user workspace cache with demo/mock state
   if (isDemoState(state)) {
     try {
-      const existing = await get<AppState>(STATE_CACHE_KEY);
+      const existing = await get<AppState>(key);
       if (existing && !isDemoState(existing) && (existing.classes.length > 0 || existing.students.length > 0)) {
         console.warn('Blocked attempt to overwrite real IndexedDB workspace cache with demo state.');
         return;
@@ -83,7 +118,7 @@ export async function saveAppStateCache(state: AppState, options?: { allowEmptyR
   const sanitized = sanitizeStateForCache(state);
 
   try {
-    await set(STATE_CACHE_KEY, sanitized);
+    await set(key, sanitized);
   } catch (error) {
     const isQuota = error instanceof Error && (
       error.name === 'QuotaExceededError' ||
@@ -95,7 +130,7 @@ export async function saveAppStateCache(state: AppState, options?: { allowEmptyR
       console.warn('IndexedDB quota exceeded. Attempting storage cleanup and retry...');
       await cleanupStaleStorage();
       try {
-        await set(STATE_CACHE_KEY, sanitized);
+        await set(key, sanitized);
         return;
       } catch (retryError) {
         console.error('Failed to save IndexedDB workspace cache after cleanup:', retryError);
@@ -106,7 +141,7 @@ export async function saveAppStateCache(state: AppState, options?: { allowEmptyR
           lessonPlans: [],
         };
         try {
-          await set(STATE_CACHE_KEY, minimalState);
+          await set(key, minimalState);
           return;
         } catch {
           throw new Error('مساحة تخزين المتصفح ممتلئة. تم الاعتماد على المزامنة السحابية.');

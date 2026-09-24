@@ -36,17 +36,26 @@ const isUuid = (value: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-
 export function getCloudRecordId(ownerId: string, entity: SyncEntity, localId: string): string {
   return isUuid(localId) ? localId : stableUuid(`${entity}:${ownerId}:${localId}`);
 }
+
+const workspaceCache = new Map<string, string>();
+
 async function workspaceId(client: AnyClient, ownerId: string): Promise<string> {
+  const cached = workspaceCache.get(ownerId);
+  if (cached) return cached;
+
   const result = await client.rpc('default_workspace_id');
   if (!result.error && typeof result.data === 'string' && isUuid(result.data)) {
+    workspaceCache.set(ownerId, result.data);
     return result.data;
   }
   const existing = await client.from('workspaces').select('id').eq('owner_id', ownerId).maybeSingle();
   if (existing.data?.id && isUuid(existing.data.id)) {
+    workspaceCache.set(ownerId, existing.data.id);
     return existing.data.id;
   }
   const created = await client.from('workspaces').upsert({ owner_id: ownerId }, { onConflict: 'owner_id' }).select('id').single();
   if (created.data?.id && isUuid(created.data.id)) {
+    workspaceCache.set(ownerId, created.data.id);
     return created.data.id;
   }
   throw new Error('Supabase workspace is unavailable for this user');
@@ -57,7 +66,6 @@ function toRow(entity: SyncEntity, payload: any, ownerId: string, workspace: str
   const classId = (value: string | undefined) => value ? getCloudRecordId(ownerId, 'class', value) : null;
   const studentId = (value: string | undefined) => value ? getCloudRecordId(ownerId, 'student', value) : null;
   const sessionId = (value: string | undefined) => value ? getCloudRecordId(ownerId, 'session', value) : null;
-  const unitId = (value: string | undefined) => value ? getCloudRecordId(ownerId, 'customUnit', value) : null;
   const base = { id, owner_id: ownerId, workspace_id: workspace, revision: metadata.revision, sync_revision: metadata.revision, updated_by: ownerId, sync_device_id: metadata.deviceId, sync_updated_at: metadata.updatedAt };
   switch (entity) {
     case 'class': return { ...base, name: payload.name.trim(), level: payload.level, section: payload.stream || null, weekly_hours: getWeeklyHours(payload.level), academic_year: null, notes: null };
@@ -234,7 +242,7 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
     let maxRevision = 0;
     for (const [, result] of results) {
       for (const row of result.data || []) {
-        const rev = Number(row.sync_revision ?? row.revision ?? 0);
+        const rev = Number(row.sync_revision ?? 0);
         if (rev > maxRevision) maxRevision = rev;
       }
     }
@@ -351,6 +359,21 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
     const remotePlans = by('lessonPlan').map((r: any) => fromRow('lessonPlan', r)).filter(Boolean);
     const lessonPlans = retainLocal('lessonPlan', remotePlans, localState.lessonPlans);
 
+    const preferredActiveClassId = localState.activeClassId || (supplementary as any)?.activeClassId;
+    const activeClassId = classes.some((item: ClassRoom) => item.id === preferredActiveClassId)
+      ? preferredActiveClassId
+      : (classes[0]?.id || null);
+
+    const classIdSet = new Set<string>();
+    for (const c of classes) {
+      classIdSet.add(c.id);
+      classIdSet.add(getCloudRecordId(userId, 'class', c.id));
+    }
+    const classMatches = (classId: string | undefined): boolean => {
+      if (!classId) return false;
+      return classIdSet.has(classId) || classIdSet.has(getCloudRecordId(userId, 'class', classId));
+    };
+
     return { ...localState, ...supplementary, profile: profile ? {
         ...localState.profile,
         name: profile.full_name || localState.profile.name,
@@ -375,17 +398,17 @@ export async function loadCoreState(client: Client, localState: AppState): Promi
         gender: profile.gender === 'M' || profile.gender === 'F' ? profile.gender : undefined,
       } : localState.profile,
       classes,
-      students: students.filter((s: Student) => classes.some((c: ClassRoom) => c.id === s.classId || getCloudRecordId(userId, 'class', c.id) === s.classId || c.id === getCloudRecordId(userId, 'class', s.classId))),
-      grades: grades.filter((g: StudentGrade) => classes.some((c: ClassRoom) => c.id === g.classId || getCloudRecordId(userId, 'class', c.id) === g.classId || c.id === getCloudRecordId(userId, 'class', g.classId))),
-      sessions: sessions.filter((s: SessionRecord) => classes.some((c: ClassRoom) => c.id === s.classId || getCloudRecordId(userId, 'class', c.id) === s.classId || c.id === getCloudRecordId(userId, 'class', s.classId))),
-      timetable: timetable.filter((t: TimetableSlot) => classes.some((c: ClassRoom) => c.id === t.classId || getCloudRecordId(userId, 'class', c.id) === t.classId || c.id === getCloudRecordId(userId, 'class', t.classId))),
-      lessonProgress: lessonProgress.filter((p: ClassLessonProgress) => classes.some((c: ClassRoom) => c.id === p.classId || getCloudRecordId(userId, 'class', c.id) === p.classId || c.id === getCloudRecordId(userId, 'class', p.classId))),
+      students: classes.length > 0 ? students.filter((s: Student) => classMatches(s.classId)) : [],
+      grades: classes.length > 0 ? grades.filter((g: StudentGrade) => classMatches(g.classId)) : [],
+      sessions: classes.length > 0 ? sessions.filter((s: SessionRecord) => classMatches(s.classId)) : [],
+      timetable: classes.length > 0 ? timetable.filter((t: TimetableSlot) => classMatches(t.classId)) : [],
+      lessonProgress: classes.length > 0 ? lessonProgress.filter((p: ClassLessonProgress) => classMatches(p.classId)) : [],
       customUnits, lessonPlans, dashboardTasks,
       unitPdfFiles: {
         ...(localState.unitPdfFiles || {}),
         ...remoteUnitPdfFiles,
       },
-      activeClassId: classes.some((item: ClassRoom) => item.id === localState.activeClassId) ? localState.activeClassId : classes[0]?.id || null,
+      activeClassId,
       cloudRevision: maxRevision };
   } catch (error) { if (schemaError(error)) throw localOnly(); throw error; }
 }
@@ -394,7 +417,8 @@ async function applyOperationOnce(client: AnyClient, ownerId: string, workspace:
   const table = tables[operation.entity];
   let recordId = getCloudRecordId(ownerId, operation.entity, operation.recordId);
   const conflictIfStale = async (existing: any): Promise<void> => {
-    const remoteRevision = Number(existing?.sync_revision ?? existing?.revision ?? 0);
+    // Only check sync_revision (client-coordinated sync revision), NOT internal bump_revision counter
+    const remoteRevision = Number(existing?.sync_revision ?? 0);
     const remoteDevice = existing?.sync_device_id || existing?.updated_by || null;
     if (!existing || remoteRevision <= metadata.revision || remoteDevice === metadata.deviceId) return;
     const conflict = await client.from('sync_conflicts').insert({
@@ -640,12 +664,14 @@ export async function saveCoreState(client: Client, ownerId: string, state: AppS
 export async function applySyncOutboxEntry(client: Client, ownerId: string, entry: SyncOutboxEntry, deviceId: string): Promise<void> {
   try {
     const workspace = await workspaceId(client as AnyClient, ownerId);
+    const metadata: SyncMetadata = {
+      revision: entry.revision,
+      updatedAt: entry.updatedAt,
+      deviceId,
+    };
+
     for (const operation of entry.operations) {
-      await applyOperation(client as AnyClient, ownerId, workspace, operation, {
-        revision: entry.revision,
-        updatedAt: entry.updatedAt,
-        deviceId,
-      });
+      await applyOperation(client as AnyClient, ownerId, workspace, operation, metadata);
     }
   } catch (error) {
     if (schemaError(error)) throw localOnly();
